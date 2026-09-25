@@ -1,7 +1,7 @@
 //! DST 游戏日志定位与读取（PROJECT_SPEC.md §8.4）
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, Serialize)]

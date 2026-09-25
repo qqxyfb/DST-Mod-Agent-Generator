@@ -101,7 +101,7 @@ async fn stage5(app: &AppHandle, project_path: &str) -> Result<(), String> {
 
 /// Stage7：输出 Mod 报告（列出文件路径 + 测试指引）
 async fn stage7(app: &AppHandle, project_path: &str) -> Result<(), String> {
-    let info = project::load(project_path)?;
+    project::load(project_path)?;
     let mod_dir = Path::new(project_path).join("mod");
     let mut files = vec![];
     if mod_dir.is_dir() {

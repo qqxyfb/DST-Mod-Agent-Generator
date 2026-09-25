@@ -1,6 +1,6 @@
 //! 代码生成 Skill（S3 / Stage5）：确定性模板 + LLM 内容填充
 //! 输入：人设 JSON vN + 原版脚本参考；输出：全套 mod Lua 源码 + 必生成项断言
-use crate::core::schema::{self, CharacterSheet};
+use crate::core::schema::CharacterSheet;
 use crate::core::{config, dst, llm, project};
 use serde::Serialize;
 use std::path::Path;

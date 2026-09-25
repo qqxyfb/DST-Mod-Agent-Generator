@@ -1,10 +1,12 @@
 # DST-Mod-Agent-Generator
 
+仓库：<https://github.com/qqxyfb/DST-Mod-Agent-Generator>
+
 饥荒联机版（Don't Starve Together）自定义人物 Mod 生成桌面工具：普通用户上传**参考图片 + 文字描述**，即可自动生成 DST 人物 Mod（Lua 代码 + 复用 ESC 模板动画贴图）。用户不需要懂 Lua，不需要手动配置 ComfyUI/SAM2 等底层工具。
 
 ## 当前状态
 
-- 阶段：**M1 MVP 代码骨架已完成**（含账号校验、人设对话、代码生成、双管线状态机、日志调试）；图像线与资源编译为 V1 预留接口。
+- 阶段：**M1 MVP 已完成并编译验证**（含账号校验、人设对话、代码生成、双管线状态机、日志调试）；图像线与资源编译为 V1 预留接口。
 - 完整设计文档见 [PROJECT_SPEC.md](./PROJECT_SPEC.md)：评审结论、可行性分析、修订后的需求规格、双管线阶段状态机、MVP 范围与 Roadmap。
 - 用户补充需求已固化：① 阶段卡片化 + 视觉线/代码线可并行切换；② 单阶段/单部件可单独重新生成。
 - M1 已动作化：Tab1 “一键安装基础依赖”真实执行 `pip install -r python/requirements.txt`；Tab2 参考图经 `tauri-plugin-dialog` 选择并复制进项目 `reference/` 目录。
@@ -60,13 +62,29 @@ npm run tauri dev
 ### 生产打包
 
 ```powershell
-npm run tauri build
-# 产物：
-#   src-tauri/target/release/bundle/nsis/*.exe
-#   src-tauri/target/release/bundle/msi/*.msi
+# 方式一：脚本打包（推荐）
+.\scripts\build.ps1 -NoBundle            # 仅编译应用 exe（快速调试）
+.\scripts\build.ps1 -Bundles nsis        # 生成 NSIS 安装包
+.\scripts\build.ps1 -Bundles msi         # 生成 MSI 安装包（需要 WiX，首次自动下载）
+.\scripts\build.ps1                      # 完整打包（NSIS + MSI）
+.\scripts\build.ps1 -SkipNpmInstall      # 跳过 npm install 与图标生成
+
+# 方式二：直接调用 tauri
+npm run tauri build -- --bundles nsis
 ```
 
-> 打包前请在 `src-tauri/tauri.conf.json` 的 `bundle.icon` 配置应用图标（MVP 留空仅影响打包）。
+产物：
+- 应用 exe：`src-tauri/target/release/dst-mod-agent.exe`
+- NSIS 安装包：`src-tauri/target/release/bundle/nsis/*-setup.exe`
+- MSI 安装包：`src-tauri/target/release/bundle/msi/*.msi`
+
+> 国内网络提示
+> - npm 建议使用镜像源：`npm install --registry=https://registry.npmmirror.com`
+> - 首次打包时 tauri-bundler 会从 GitHub 下载 NSIS / WiX 工具；若下载超时，可设置镜像环境变量：
+>   `$env:TAURI_BUNDLER_TOOLS_GITHUB_MIRROR = "https://gh-proxy.com"`
+> - 也可离线预置：把官方 `nsis-3.11.zip` 解压到 `%LOCALAPPDATA%\tauri\NSIS`，并把 `nsis_tauri_utils.dll` 放到
+>   `%LOCALAPPDATA%\tauri\NSIS\Plugins\x86-unicode\additional\`，即可跳过 NSIS 下载（哈希校验通过后直接使用）。
+
 > `autocompiler.exe`（Klei Mod Tools）由用户经 Steam 自装，工具不捆绑分发。
 
 ### 目录校验与 LLM 配置
@@ -81,7 +99,7 @@ npm run tauri build
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
 | M0 设计 | PROJECT_SPEC.md 定稿 | 完成 |
-| M1 MVP | 配置页 + 人设对话 + 代码生成 + 双管线状态机 + 日志调试 | 代码完成（未编译验证） |
+| M1 MVP | 配置页 + 人设对话 + 代码生成 + 双管线状态机 + 日志调试 | 已编译验证（含 NSIS 安装包） |
 | M2 V1 | 图像线（提示词/生成/rembg/SAM2/对齐）+ 资源编译 + 一键修复闭环 + 更新全量 | 未开始 |
 | M3 V2 | SD WebUI/ComfyUI 适配、多角色、创意工坊发布辅助 | 未开始 |
 
