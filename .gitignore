@@ -1,0 +1,20 @@
+# 前端
+node_modules/
+dist/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 运行产物
+projects/*
+!projects/.gitkeep
+!projects/README.md
+cache/*
+!cache/.gitkeep
+*.log

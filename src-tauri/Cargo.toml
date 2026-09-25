@@ -1,0 +1,24 @@
+[package]
+name = "dst-mod-agent"
+version = "0.1.0"
+description = "DST Mod Agent Generator - 饥荒联机版自定义人物 Mod 生成桌面工具"
+edition = "2021"
+
+[lib]
+name = "dst_mod_agent_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "fs", "io-util", "sync"] }
+thiserror = "2"
+dirs = "6"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }

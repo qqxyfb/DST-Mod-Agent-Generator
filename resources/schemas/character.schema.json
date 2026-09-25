@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dst-mod-agent-generator.local/schemas/character.schema.json",
+  "title": "DST Character Sheet",
+  "description": "人设结构化 JSON Schema（PROJECT_SPEC.md §7.5）：白名单 + 数值范围强校验，防止 LLM 输出非法 prefab 参数",
+  "type": "object",
+  "required": ["char_name", "display_name", "stats", "passive_skills", "active_skills", "starter_items", "special_items", "speech", "pros_cons"],
+  "properties": {
+    "char_name": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "小写 snake_case prefab 名" },
+    "display_name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "stats": { "$ref": "#/definitions/stats" },
+    "passive_skills": { "type": "array", "items": { "$ref": "#/definitions/skill" } },
+    "active_skills": { "type": "array", "items": { "$ref": "#/definitions/skill" } },
+    "starter_items": { "type": "array", "maxItems": 6, "items": { "type": "string", "minLength": 1 } },
+    "special_items": { "type": "array", "items": { "$ref": "#/definitions/item_def" } },
+    "speech": { "type": "object", "additionalProperties": { "type": "string" } },
+    "pros_cons": {
+      "type": "object",
+      "properties": {
+        "pros": { "type": "array", "items": { "type": "string" } },
+        "cons": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "definitions": {
+    "stats": {
+      "type": "object",
+      "required": ["health", "hunger", "sanity"],
+      "properties": {
+        "health": { "type": "integer", "minimum": 50, "maximum": 300 },
+        "hunger": { "type": "integer", "minimum": 50, "maximum": 300 },
+        "sanity": { "type": "integer", "minimum": 50, "maximum": 300 }
+      }
+    },
+    "skill": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string" },
+        "params": { "type": "object" },
+        "item": { "type": "string" },
+        "cooldown": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "item_def": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["wearable", "consumable", "weapon", "other"] },
+        "stats": { "$ref": "#/definitions/stats" }
+      }
+    }
+  }
+}

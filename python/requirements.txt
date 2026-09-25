@@ -1,0 +1,4 @@
+# MVP 基础依赖（Rust PythonBridge 就绪检测用）
+# V1 图像管线启用后完整清单见 requirements-image.txt
+Pillow>=10.0
+numpy>=1.26

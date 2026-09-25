@@ -1,0 +1,5 @@
+# V1 图像管线依赖（由"一键安装"按功能组安装，权重首次使用下载）
+rembg>=2.0
+onnxruntime>=1.17
+# sam2：官方包（或 git+https://github.com/facebookresearch/sam2.git#egg=sam2）
+sam2
