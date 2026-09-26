@@ -39,6 +39,9 @@ pub struct StageState {
     pub log: Vec<String>,
     #[serde(default)]
     pub updated_at: String,
+    /// 最近一次「重跑提示词」：Tab3 重跑阶段时用户填写的调整方向，LLM 阶段会优先遵循
+    #[serde(default)]
+    pub hint: String,
 }
 
 impl Default for StageState {
@@ -49,6 +52,7 @@ impl Default for StageState {
             input_hash: None,
             log: vec![],
             updated_at: now(),
+            hint: String::new(),
         }
     }
 }

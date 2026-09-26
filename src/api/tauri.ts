@@ -183,10 +183,11 @@ export const api = {
 
   // Tab3 流水线
   pipelineState: (projectPath: string) => call<Record<string, unknown>>("pipeline_state", { projectPath }),
-  startStage: (projectPath: string, stageId: string) =>
-    call<Record<string, unknown>>("start_stage", { projectPath, stageId }),
-  rerunStage: (projectPath: string, stageId: string) =>
-    call<Record<string, unknown>>("rerun_stage", { projectPath, stageId }),
+  /** hint = 可选重跑提示词：让 AI 按指定方向调整（LLM 阶段生效） */
+  startStage: (projectPath: string, stageId: string, hint = "") =>
+    call<Record<string, unknown>>("start_stage", { projectPath, stageId, hint }),
+  rerunStage: (projectPath: string, stageId: string, hint = "") =>
+    call<Record<string, unknown>>("rerun_stage", { projectPath, stageId, hint }),
   skipStage: (projectPath: string, stageId: string) =>
     call<Record<string, unknown>>("skip_stage", { projectPath, stageId }),
   getStageLog: (projectPath: string, stageId: string) => call<string>("get_stage_log", { projectPath, stageId }),

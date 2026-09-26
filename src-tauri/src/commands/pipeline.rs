@@ -22,25 +22,31 @@ pub fn pipeline_state(project_path: String) -> Result<Value, String> {
 }
 
 /// 开始执行阶段（视觉线/代码线可并行；共享 Stage1 产物）
+/// hint = 可选「重跑提示词」，LLM 阶段会据此调整生成方向
 #[tauri::command]
 pub async fn start_stage(
     project_path: String,
     stage_id: String,
+    hint: Option<String>,
     app: AppHandle,
 ) -> Result<Value, String> {
     runtime_log::log("pipeline", &format!("start_stage: {stage_id} @ {project_path}"));
-    pipeline::run_stage(app, &project_path, &stage_id).await
+    pipeline::run_stage(app, &project_path, &stage_id, hint).await
 }
 
-/// 重跑阶段 = 基于当前输入快照重新执行（用户补充需求：单阶段可重新生成）
+/// 重跑阶段 = 基于当前输入快照重新执行（用户补充需求：单阶段可重新生成 + 可带提示词定向调整）
 #[tauri::command]
 pub async fn rerun_stage(
     project_path: String,
     stage_id: String,
+    hint: Option<String>,
     app: AppHandle,
 ) -> Result<Value, String> {
-    runtime_log::log("pipeline", &format!("rerun_stage: {stage_id} @ {project_path}"));
-    pipeline::run_stage(app, &project_path, &stage_id).await
+    runtime_log::log(
+        "pipeline",
+        &format!("rerun_stage: {stage_id} @ {project_path} hint={hint:?}"),
+    );
+    pipeline::run_stage(app, &project_path, &stage_id, hint).await
 }
 
 /// 跳过阶段（标记风险，可恢复执行）

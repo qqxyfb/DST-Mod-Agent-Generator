@@ -176,6 +176,8 @@ export interface StageState {
   input_hash: string | null;
   log: string[];
   updated_at: string;
+  /** 最近一次重跑提示词（Tab3 定向调整用；LLM 阶段会优先遵循） */
+  hint?: string;
 }
 
 export interface ProjectInfo {

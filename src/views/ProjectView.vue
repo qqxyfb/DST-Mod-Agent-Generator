@@ -31,8 +31,17 @@ const showPreview = ref(true);
 /** 首轮上下文（描述 + 参考图）是否已注入，避免后续每条消息重复拼接 */
 const baseSent = ref(false);
 
-/** 已选标签中不属于预置表的部分（可单独删除） */
-const customTags = computed(() => meta.value.tags.filter((t) => !WORKSHOP_TAGS.includes(t)));
+/** 标签下拉面板开关 + 搜索关键字（面板内滚动 / 搜索 / 全选，避免标签表常驻撑高卡片） */
+const showTagPanel = ref(false);
+const tagFilter = ref("");
+/** 搜索过滤：中文名与英文值都参与匹配 */
+const filteredTags = computed(() => {
+  const q = tagFilter.value.trim().toLowerCase();
+  if (!q) return WORKSHOP_TAGS;
+  return WORKSHOP_TAGS.filter(
+    (t) => t.toLowerCase().includes(q) || (WORKSHOP_TAG_LABELS[t] ?? "").toLowerCase().includes(q),
+  );
+});
 
 onMounted(async () => {
   projects.value = await api.listProjects();
@@ -47,6 +56,23 @@ function addCustomTag() {
   customTag.value = "";
 }
 
+/** 勾选 / 取消勾选单个标签 */
+function toggleTag(t: string) {
+  meta.value.tags = meta.value.tags.includes(t)
+    ? meta.value.tags.filter((x) => x !== t)
+    : [...meta.value.tags, t];
+}
+
+/** 全选：一次性选中全部预置标签（自定义标签保留） */
+function selectAllTags() {
+  meta.value.tags = [...new Set([...meta.value.tags, ...WORKSHOP_TAGS])];
+}
+
+/** 清空：移除全部标签（含自定义） */
+function clearTags() {
+  meta.value.tags = [];
+}
+
 /** 移除单个标签 */
 function removeTag(t: string) {
   meta.value.tags = meta.value.tags.filter((x) => x !== t);
@@ -59,6 +85,8 @@ function newProject() {
   projectPath.value = "";
   meta.value = { name: "", author: "", version: "1.0.0", description: "", tags: [] };
   customTag.value = "";
+  showTagPanel.value = false;
+  tagFilter.value = "";
   description.value = "";
   refNames.value = [];
   refMsg.value = "";
@@ -123,6 +151,8 @@ async function openProject(path: string) {
     projectMsg.value = "";
     baseSent.value = false;
     customTag.value = "";
+    showTagPanel.value = false;
+    tagFilter.value = "";
     // 回填 Mod 基础信息（tags 复制一份，避免与 project.json 数据共享引用）
     meta.value = {
       name: info.meta.name,
@@ -290,36 +320,61 @@ async function confirmDraft() {
         <textarea v-model="meta.description" rows="2" style="width: 100%"></textarea>
 
         <label>创意工坊标签（多选，写入 modinfo 的 server_filter_tags）</label>
-        <div class="tag-picker">
-          <label
-            v-for="t in WORKSHOP_TAGS"
-            :key="t"
-            class="tag-chip"
-            :class="{ on: meta.tags.includes(t) }"
-          >
-            <input type="checkbox" :value="t" v-model="meta.tags" />
+        <!-- 折叠式多选：默认只占一行高度，面板内可搜索 / 全选 / 滚动挑选 -->
+        <div class="tag-select">
+          <button type="button" class="tag-trigger" @click="showTagPanel = !showTagPanel">
+            <span :class="{ placeholder: !meta.tags.length }">
+              {{
+                meta.tags.length
+                  ? `已选 ${meta.tags.length} 个：${meta.tags.join("、")}`
+                  : "点击选择标签（可多选 / 全选）"
+              }}
+            </span>
+            <span class="tag-arrow">{{ showTagPanel ? "▲" : "▼" }}</span>
+          </button>
+
+          <!-- 点击面板外任意位置收起 -->
+          <div v-if="showTagPanel" class="tag-backdrop" @click="showTagPanel = false"></div>
+          <div v-if="showTagPanel" class="tag-panel">
+            <div class="tag-panel-head">
+              <input type="text" v-model="tagFilter" placeholder="搜索标签…" style="flex: 1" />
+              <button class="btn-secondary" @click="selectAllTags">全选</button>
+              <button class="btn-secondary" @click="clearTags">清空</button>
+            </div>
+            <div class="tag-panel-list">
+              <label
+                v-for="t in filteredTags"
+                :key="t"
+                class="tag-option"
+                :class="{ on: meta.tags.includes(t) }"
+                :title="t"
+              >
+                <input type="checkbox" :checked="meta.tags.includes(t)" @change="toggleTag(t)" />
+                <span>{{ WORKSHOP_TAG_LABELS[t] ?? t }}</span>
+              </label>
+              <div v-if="!filteredTags.length" class="muted">没有匹配的标签，可在下方添加自定义标签。</div>
+            </div>
+            <div class="tag-add">
+              <input
+                type="text"
+                v-model="customTag"
+                placeholder="自定义标签，回车添加"
+                style="flex: 1"
+                @keydown.enter.prevent="addCustomTag"
+              />
+              <button class="btn-secondary" @click="addCustomTag">添加</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 已选标签：超过 3 行时卡内滚动，不再无限撑高 -->
+        <div v-if="meta.tags.length" class="tag-picker selected-list">
+          <span v-for="t in meta.tags" :key="t" class="tag-chip on">
             <span>{{ WORKSHOP_TAG_LABELS[t] ?? t }}</span>
-          </label>
-        </div>
-        <div class="tag-add">
-          <input
-            type="text"
-            v-model="customTag"
-            placeholder="自定义标签，回车添加"
-            style="flex: 1"
-            @keydown.enter.prevent="addCustomTag"
-          />
-          <button class="btn-secondary" @click="addCustomTag">添加</button>
-        </div>
-        <div v-if="customTags.length" class="tag-picker" style="margin-top: 8px">
-          <span v-for="t in customTags" :key="t" class="tag-chip on">
-            <span>{{ t }}</span>
             <button class="tag-del" title="移除标签" @click="removeTag(t)">×</button>
           </span>
         </div>
-        <div class="muted" style="margin-top: 6px">
-          已选 {{ meta.tags.length }} 个：{{ meta.tags.length ? meta.tags.join("、") : "（未选择）" }}
-        </div>
+        <div class="muted" style="margin-top: 6px">已选 {{ meta.tags.length }} 个标签</div>
 
         <div class="btn-row">
           <button class="btn-secondary" @click="newProject">新建项目</button>
@@ -444,8 +499,39 @@ async function confirmDraft() {
 .preview-card { margin-bottom: 0; }
 .preview-card .code-block { max-height: 260px; }
 
-/* ——— 创意工坊标签多选 ——— */
+/* ——— 创意工坊标签多选（折叠面板） ——— */
+.tag-select { position: relative; }
+.tag-trigger {
+  width: 100%; display: flex; align-items: center; gap: 8px; text-align: left;
+  background: #0f141b; color: #e6e6e6; border: 1px solid #2c3542; border-radius: 4px;
+  padding: 6px 8px; font-size: 13px;
+}
+/* 已选内容过长时省略号截断，保证触发器始终只有一行高 */
+.tag-trigger > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-trigger .placeholder { color: #6b7684; }
+.tag-arrow { color: #8b96a5; font-size: 11px; }
+.tag-backdrop { position: fixed; inset: 0; z-index: 10; }
+.tag-panel {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 11;
+  background: #1d232d; border: 1px solid #3c4a5a; border-radius: 6px; padding: 8px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+}
+.tag-panel-head { display: flex; align-items: center; gap: 6px; }
+.tag-panel-list {
+  margin-top: 8px; max-height: 190px; overflow: auto;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px 6px;
+}
+.tag-option {
+  display: flex; align-items: center; gap: 6px; margin: 0; padding: 3px 5px; border-radius: 4px;
+  font-size: 12px; color: #9fb0c3; cursor: pointer; min-width: 0;
+}
+.tag-option:hover { background: #232c3a; }
+.tag-option.on { background: #1d3350; color: #dbe7ff; }
+.tag-option > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-option input[type="checkbox"] { margin: 0; flex: none; }
 .tag-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 已选标签最多 3 行，超出后卡内滚动 */
+.selected-list { max-height: 76px; overflow-y: auto; margin-top: 8px; }
 /* 覆写全局 label 的 block / margin，让标签变成小胶囊 */
 .tag-chip {
   display: inline-flex; align-items: center; gap: 4px; margin: 0; cursor: pointer;

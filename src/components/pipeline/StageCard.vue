@@ -41,6 +41,7 @@ function statusLabel(): string {
     <div class="stage-name">{{ def.name }}</div>
     <div class="stage-lane">{{ def.lane === "shared" ? "共享" : def.lane === "visual" ? "视觉线" : "代码线" }}</div>
     <div v-if="state?.artifact_version" class="stage-ver">产物: {{ state.artifact_version }}</div>
+    <div v-if="state?.hint" class="stage-hint" :title="state.hint">✎ 已设重跑提示词</div>
     <div class="stage-ops" @click.stop>
       <button class="btn-secondary" @click="emit('start', def.id)" :disabled="state?.status === 'running'">开始</button>
       <button class="btn-secondary" @click="emit('rerun', def.id)" :disabled="!state || state.status === 'pending'">重跑</button>
@@ -66,6 +67,7 @@ function statusLabel(): string {
 .stage-name { font-weight: 600; font-size: 13px; }
 .stage-lane { font-size: 11px; color: #8b96a5; }
 .stage-ver { font-size: 11px; color: #5cd68a; }
+.stage-hint { font-size: 11px; color: #e0b341; }
 .stage-ops { display: flex; gap: 4px; margin-top: 4px; }
 .stage-ops .btn-secondary { font-size: 11px; padding: 3px 8px; }
 </style>

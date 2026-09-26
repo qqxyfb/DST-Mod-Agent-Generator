@@ -29,13 +29,49 @@ pub fn emit_progress(app: &AppHandle, project_name: &str, stage: &str, message: 
 }
 
 /// 运行阶段（幂等：重跑 = 再次调用）
-pub async fn run_stage(app: AppHandle, project_path: &str, stage_id: &str) -> Result<Value, String> {
+/// `hint` = 用户在 Tab3 填写的「重跑提示词」，为空则沿用该阶段上次保存的提示词；
+/// 仅 LLM 驱动的阶段（当前为 stage5 代码生成）消费，其余阶段记录到状态与日志中备查。
+pub async fn run_stage(
+    app: AppHandle,
+    project_path: &str,
+    stage_id: &str,
+    hint: Option<String>,
+) -> Result<Value, String> {
+    // 用户重跑提示词：非空则覆盖保存并写日志；为空则复用该阶段上次保存的提示词（点「重跑」即可复用）
+    let mut hint = hint.unwrap_or_default().trim().to_string();
+    if !hint.is_empty() {
+        let mut info = project::load(project_path)?;
+        let st = project::stage(&mut info, stage_id);
+        st.hint = hint.clone();
+        st.updated_at = chrono::Utc::now().to_rfc3339();
+        st.log.push(format!("✎ 重跑提示词：{hint}"));
+        project::save(&info)?;
+    } else {
+        hint = project::load(project_path)?
+            .pipeline
+            .get(stage_id)
+            .map(|s| s.hint.clone())
+            .unwrap_or_default();
+    }
+    run_stage_inner(app, project_path, stage_id, hint).await
+}
+
+/// 阶段执行主体：先把提示词写回状态后再分派
+async fn run_stage_inner(
+    app: AppHandle,
+    project_path: &str,
+    stage_id: &str,
+    hint: String,
+) -> Result<Value, String> {
     // 限制固化（PROJECT_SPEC.md §12）：图像线/编译线属 V1 预留，标记"已跳过"并记录原因
     if matches!(stage_id, "stage2" | "stage3" | "stage4" | "stage6") {
         let mut info = project::load(project_path)?;
         let st = project::stage(&mut info, stage_id);
         st.status = "skipped".into();
         st.updated_at = chrono::Utc::now().to_rfc3339();
+        if !hint.is_empty() {
+            st.log.push(format!("已记录重跑提示词（V1 接入后生效）：{hint}"));
+        }
         st.log
             .push("V1 未接入（预留接口）：请在 V1 启用 rembg/SAM2/autocompiler 后再执行。".into());
         project::save(&info)?;
@@ -44,7 +80,7 @@ pub async fn run_stage(app: AppHandle, project_path: &str, stage_id: &str) -> Re
     mark(project_path, stage_id, "running", "开始执行")?;
     let outcome = match stage_id {
         "stage1" => stage1(&app, project_path).await,
-        "stage5" => stage5(&app, project_path).await,
+        "stage5" => stage5(&app, project_path, &hint).await,
         "stage7" => stage7(&app, project_path).await,
         other => Err(format!("未知阶段: {other}")),
     };
@@ -89,9 +125,13 @@ async fn stage1(app: &AppHandle, project_path: &str) -> Result<(), String> {
 }
 
 /// Stage5：代码生成（S3）
-async fn stage5(app: &AppHandle, project_path: &str) -> Result<(), String> {
+/// hint = 用户重跑提示词，会追加进 LLM 提示词，用于按预期方向调整生成结果
+async fn stage5(app: &AppHandle, project_path: &str, hint: &str) -> Result<(), String> {
     emit_progress(app, project_path, "stage5", "开始代码生成", 5.0);
-    let report = codegen::generate(app.clone(), project_path).await?;
+    if !hint.trim().is_empty() {
+        emit_progress(app, project_path, "stage5", &format!("应用重跑提示词：{hint}"), 8.0);
+    }
+    let report = codegen::generate(app.clone(), project_path, hint).await?;
     if !report.errors.is_empty() {
         return Err(format!("必生成文件断言失败: {}", report.errors.join("；")));
     }

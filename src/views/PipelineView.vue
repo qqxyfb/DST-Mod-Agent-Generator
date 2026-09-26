@@ -15,6 +15,17 @@ const report = ref<string>("");
 const projects = ref<ProjectInfo[]>([]);
 let unlisten: (() => void) | null = null;
 
+/** 各阶段「重跑提示词」：随阶段保存在 project.json，重跑时带给后端 → AI 按预期方向调整 */
+const hints = ref<Record<string, string>>({});
+/** 快捷填充：常用调整方向（仅作输入辅助，用户可自由编辑） */
+const HINT_PRESETS = [
+  "台词更口语化、贴合角色性格",
+  "三围数值更平衡，接近原版手感",
+  "技能描述更详细，写清数值与冷却",
+  "只用原版已有 API，避免自定义全局函数",
+];
+const running = computed(() => Object.values(pipeline.value).some((s) => s.status === "running"));
+
 onMounted(async () => {
   projects.value = await api.listProjects();
   if (projects.value.length) await selectProject(projects.value[0].path);
@@ -29,7 +40,21 @@ async function selectProject(path: string) {
   projectPath.value = path;
   project.value = await api.openProject(path);
   pipeline.value = (project.value?.pipeline ?? {}) as Record<string, StageState>;
+  loadHints();
   await loadStageLog(activeStage.value);
+}
+
+/** 从阶段状态回填已保存的提示词（切换项目时全量回填） */
+function loadHints() {
+  const h: Record<string, string> = {};
+  for (const s of STAGES) h[s.id] = pipeline.value[s.id]?.hint ?? "";
+  hints.value = h;
+}
+
+/** 快捷填充：追加到当前阶段的提示词（用「；」分隔多条目） */
+function appendHint(text: string) {
+  const cur = hints.value[activeStage.value] ?? "";
+  hints.value[activeStage.value] = cur ? `${cur.replace(/[；;]\s*$/, "")}；${text}` : text;
 }
 
 const lanes = computed(() => ({
@@ -45,12 +70,18 @@ async function loadStageLog(id: string) {
 
 async function runAction(action: "start" | "rerun" | "skip", id: string) {
   if (!project.value) return;
-  pipeline.value = ((await (action === "start"
-    ? api.startStage(project.value.path, id)
-    : action === "rerun"
-      ? api.rerunStage(project.value.path, id)
-      : api.skipStage(project.value.path, id))) as unknown as Record<string, StageState>) ?? pipeline.value;
+  // 带当前阶段的重跑提示词（可空）；为空时后端会复用该阶段上次保存的提示词
+  const hint = hints.value[id] ?? "";
+  pipeline.value =
+    ((await (action === "start"
+      ? api.startStage(project.value.path, id, hint)
+      : action === "rerun"
+        ? api.rerunStage(project.value.path, id, hint)
+        : api.skipStage(project.value.path, id))) as unknown as Record<string, StageState>) ?? pipeline.value;
   project.value = await api.openProject(project.value.path);
+  // 只回填本次执行的阶段：不覆盖用户在其他阶段尚未提交的输入
+  const saved = pipeline.value[id]?.hint;
+  if (saved !== undefined) hints.value[id] = saved;
   await loadStageLog(id);
 }
 
@@ -125,6 +156,30 @@ async function genReport() {
           <button class="btn-secondary" @click="genReport">生成 Mod 报告（Stage7）</button>
         </div>
       </div>
+
+      <!-- 重跑提示词：重跑时给 AI 一个调整方向（如「只改台词，数值别动」），随阶段保存 -->
+      <div class="hint-box">
+        <label>重跑提示词（可选，作用于当前阶段 {{ activeStage }}）</label>
+        <textarea
+          v-model="hints[activeStage]"
+          rows="2"
+          style="width: 100%"
+          placeholder="例如：保留三围数值，只重写台词风格；技能描述更详细；只用原版已有 API…"
+        ></textarea>
+        <div class="hint-actions">
+          <button class="btn-primary" :disabled="!project || running" @click="runAction('rerun', activeStage)">
+            带提示词重跑本阶段
+          </button>
+          <button class="btn-secondary" @click="hints[activeStage] = ''">清空提示词</button>
+          <span class="muted">快捷填充</span>
+          <button v-for="p in HINT_PRESETS" :key="p" class="hint-preset" @click="appendHint(p)">{{ p }}</button>
+        </div>
+        <div class="muted">
+          阶段卡片上的「重跑」同样会带上这里填写的提示词；提示词随阶段保存。
+          当前实际生效的是 LLM 阶段（Stage5 代码生成），Stage2 部件提示词待 V1 接入后生效。
+        </div>
+      </div>
+
       <pre class="code-block" style="max-height:200px">{{ stageLog || "（空）" }}</pre>
     </div>
 
@@ -136,6 +191,16 @@ async function genReport() {
 </template>
 
 <style scoped>
+.hint-box {
+  background: #0f141b; border: 1px solid #2c3542; border-radius: 6px;
+  padding: 10px; margin: 10px 0 12px;
+}
+.hint-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.hint-preset {
+  background: #232c3a; color: #9fb0c3; border: 1px solid #3c4a5a; border-radius: 999px;
+  padding: 3px 10px; font-size: 11px;
+}
+.hint-preset:hover { color: #dbe7ff; border-color: #4d8cff; }
 .lane { margin-top: 14px; }
 .lane-title { font-weight: 600; margin-bottom: 8px; color: #9fb0c3; }
 .lane-cards { display: flex; gap: 10px; flex-wrap: wrap; }

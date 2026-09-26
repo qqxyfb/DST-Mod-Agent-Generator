@@ -22,7 +22,7 @@ pub struct CodegenReport {
 }
 
 /// 主入口：生成 mod 源码到 <project>/mod/
-pub async fn generate(app: AppHandle, project_path: &str) -> Result<CodegenReport, String> {
+pub async fn generate(app: AppHandle, project_path: &str, hint: &str) -> Result<CodegenReport, String> {
     let cfg = config::load();
     let info = project::load(project_path)?;
     let char = info
@@ -46,6 +46,15 @@ pub async fn generate(app: AppHandle, project_path: &str) -> Result<CodegenRepor
     if cfg.llm.base_url.is_empty() {
         return Err("请先在 Tab1 配置 LLM API".into());
     }
+    // 用户在 Tab3 重跑时填写的调整方向：非空则追加到每条 LLM 提示词末尾，优先级最高
+    let hint_block = if hint.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n\n【用户重跑要求（最高优先级，必须优先满足；与人设冲突时以本要求为准）】\n{}\n",
+            hint.trim()
+        )
+    };
     let client = llm::LlmClient::new(cfg.llm.clone());
     let mod_dir = Path::new(project_path).join("mod");
     std::fs::create_dir_all(mod_dir.join("prefabs")).map_err(|e| format!("创建 mod 目录失败: {e}"))?;
@@ -63,9 +72,10 @@ pub async fn generate(app: AppHandle, project_path: &str) -> Result<CodegenRepor
     emit_progress(&app, project_path, "stage5", "生成人物 prefab", 55.0);
     let sys = system_prompt(&reference);
     let prefab_user = format!(
-        "角色人设 JSON：\n{}\n\n请生成 prefab/{}.lua 的完整源码（只输出 Lua 代码）。",
+        "角色人设 JSON：\n{}\n\n请生成 prefab/{}.lua 的完整源码（只输出 Lua 代码）。{}",
         serde_json::to_string_pretty(&char.json).map_err(|e| e.to_string())?,
-        sheet.char_name
+        sheet.char_name,
+        hint_block
     );
     let prefab_code = client
         .chat(vec![
@@ -83,9 +93,10 @@ pub async fn generate(app: AppHandle, project_path: &str) -> Result<CodegenRepor
     // 4) LLM：台词表
     emit_progress(&app, project_path, "stage5", "生成台词表 speech", 75.0);
     let speech_user = format!(
-        "角色人设 JSON：\n{}\n\n请生成 speech_{}.lua 的完整源码，返回 `return {{ ... }}` 台词表，键为 ANNOUNCE_/DESCRIBE_/ACTIONFAIL_ 子集（只输出 Lua 代码）。",
+        "角色人设 JSON：\n{}\n\n请生成 speech_{}.lua 的完整源码，返回 `return {{ ... }}` 台词表，键为 ANNOUNCE_/DESCRIBE_/ACTIONFAIL_ 子集（只输出 Lua 代码）。{}",
         serde_json::to_string_pretty(&char.json).map_err(|e| e.to_string())?,
-        sheet.char_name
+        sheet.char_name,
+        hint_block
     );
     let speech_code = client
         .chat(vec![
@@ -105,10 +116,11 @@ pub async fn generate(app: AppHandle, project_path: &str) -> Result<CodegenRepor
         emit_progress(&app, project_path, "stage5", "生成专属道具 prefab", 88.0);
         for item in &sheet.special_items {
             let item_user = format!(
-                "请为专属道具生成 prefab/{}.lua（类型 {}，属性 {}），只输出 Lua 代码。",
+                "请为专属道具生成 prefab/{}.lua（类型 {}，属性 {}），只输出 Lua 代码。{}",
                 item.id,
                 item.kind,
-                serde_json::to_string(&item.stats).unwrap_or_default()
+                serde_json::to_string(&item.stats).unwrap_or_default(),
+                hint_block
             );
             let code = client
                 .chat(vec![
