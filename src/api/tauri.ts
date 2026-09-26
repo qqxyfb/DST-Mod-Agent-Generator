@@ -140,8 +140,8 @@ export const api = {
   listProjects: () => call<ProjectInfo[]>("list_projects"),
   openProject: (path: string) => call<ProjectInfo>("open_project", { path }),
   agentChat: (projectPath: string, messages: ChatMsg[]) =>
-    call<AgentReply>("agent_chat", { project_path: projectPath, messages }),
-  confirmCharacter: (projectPath: string) => call<ValidationResult>("confirm_character", { project_path: projectPath }),
+    call<AgentReply>("agent_chat", { projectPath, messages }),
+  confirmCharacter: (projectPath: string) => call<ValidationResult>("confirm_character", { projectPath }),
   /** 选择参考图（Tauri dialog 插件；浏览器预览返回 null） */
   pickReferenceFiles: async (): Promise<string[] | null> => {
     if (!isTauri) return null;
@@ -155,25 +155,25 @@ export const api = {
   },
   /** 复制参考图到项目 reference/ 目录，返回目录内全部参考图文件名 */
   importReference: (projectPath: string, filePath: string) =>
-    call<string[]>("import_reference", { project_path: projectPath, file_path: filePath }),
+    call<string[]>("import_reference", { projectPath, filePath }),
 
   // Tab3 流水线
-  pipelineState: (projectPath: string) => call<Record<string, unknown>>("pipeline_state", { project_path: projectPath }),
+  pipelineState: (projectPath: string) => call<Record<string, unknown>>("pipeline_state", { projectPath }),
   startStage: (projectPath: string, stageId: string) =>
-    call<Record<string, unknown>>("start_stage", { project_path: projectPath, stage_id: stageId }),
+    call<Record<string, unknown>>("start_stage", { projectPath, stageId }),
   rerunStage: (projectPath: string, stageId: string) =>
-    call<Record<string, unknown>>("rerun_stage", { project_path: projectPath, stage_id: stageId }),
+    call<Record<string, unknown>>("rerun_stage", { projectPath, stageId }),
   skipStage: (projectPath: string, stageId: string) =>
-    call<Record<string, unknown>>("skip_stage", { project_path: projectPath, stage_id: stageId }),
-  getStageLog: (projectPath: string, stageId: string) => call<string>("get_stage_log", { project_path: projectPath, stage_id: stageId }),
-  getReport: (projectPath: string) => call<ModReport>("get_report", { project_path: projectPath }),
+    call<Record<string, unknown>>("skip_stage", { projectPath, stageId }),
+  getStageLog: (projectPath: string, stageId: string) => call<string>("get_stage_log", { projectPath, stageId }),
+  getReport: (projectPath: string) => call<ModReport>("get_report", { projectPath }),
 
   // Tab4 调试
   locateLogs: () => call<LogFile[]>("locate_logs"),
   readLog: (path: string) => call<LogContent>("read_log", { path }),
   fixFromLog: (projectPath: string, logPath: string) =>
-    call<FixResult>("fix_from_log", { project_path: projectPath, log_path: logPath }),
-  genConsoleCmds: (projectPath: string) => call<string[]>("gen_console_cmds", { project_path: projectPath }),
+    call<FixResult>("fix_from_log", { projectPath, logPath }),
+  genConsoleCmds: (projectPath: string) => call<string[]>("gen_console_cmds", { projectPath }),
 
   // 进度事件订阅（Rust 侧 Emitter 推送）
   onProgress(cb: (e: ProgressEvent) => void): (() => void) | null {
