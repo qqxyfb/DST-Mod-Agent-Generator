@@ -22,7 +22,11 @@ if "%DST_NO_ELEVATE%"=="1" goto :check_env
 net session >nul 2>&1
 if errorlevel 1 (
     echo [build.bat] Admin rights needed for bundler tools dir. Requesting elevation...
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%ARGS%' -Verb RunAs"
+    if "%ARGS%"=="" (
+        powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    ) else (
+        powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%ARGS%' -Verb RunAs"
+    )
     exit /b 0
 )
 
