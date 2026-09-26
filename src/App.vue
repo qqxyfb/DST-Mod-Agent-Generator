@@ -79,8 +79,10 @@ body {
   background: transparent; color: #9fb0c3; padding: 8px 16px; cursor: pointer; font-size: 13px;
 }
 .tab-btn.active { background: #171a21; color: #fff; border-color: #2c3542; }
-/* .app-main 是 flex 子项且有确定高度，子视图可用 height:100% 撑满 */
-.app-main { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px; }
+/* .app-main 只负责占位，不自己滚动：避免与子视图滚动容器叠加成「双滚动条」。
+   各视图用 .view-scroll（或自己的列）承担滚动，整页永远只有一条滚动条。 */
+.app-main { flex: 1; min-height: 0; overflow: hidden; padding: 16px 20px; }
+.view-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding-right: 6px; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.55; }
 input[type="text"], input[type="password"], textarea, select {

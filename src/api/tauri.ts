@@ -102,6 +102,8 @@ function genMock(cmd: string, args: Record<string, unknown>): unknown {
       return ["mock_ref.png"] as string[];
     case "check_update":
       return { current_version: "0.1.0", latest_version: null, update_available: false, message: "（浏览器预览）" } as UpdateInfo;
+    case "load_chat_history":
+      return [] as ChatMsg[];
     case "agent_chat":
       return { reply: "（浏览器预览）请通过 Tauri 运行以调用 LLM。以下是占位草稿。", draft: MOCK_DRAFT } as AgentReply;
     case "agent_init":
@@ -161,6 +163,8 @@ export const api = {
   listReferences: (projectPath: string) => call<string[]>("list_references", { projectPath }),
   listProjects: () => call<ProjectInfo[]>("list_projects"),
   openProject: (path: string) => call<ProjectInfo>("open_project", { path }),
+  /** 读取项目对话历史（logs/chat.jsonl）；程序重启 / 切换项目后回填对话区 */
+  loadChatHistory: (projectPath: string) => call<ChatMsg[]>("load_chat_history", { projectPath }),
   agentChat: (projectPath: string, messages: ChatMsg[]) =>
     call<AgentReply>("agent_chat", { projectPath, messages }),
   /** 一键初始化：按内置固定模板自动发起第一轮 Agent 请求，产出游戏内人物概设 */

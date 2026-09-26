@@ -31,6 +31,7 @@ pub fn run() {
             commands::project::update_project,
             commands::project::list_references,
             commands::project::import_reference,
+            commands::project::load_chat_history,
             commands::project::agent_chat,
             commands::project::agent_init,
             commands::project::confirm_character,

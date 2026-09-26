@@ -51,7 +51,8 @@ async function copyCmds() {
 </script>
 
 <template>
-  <div style="display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start">
+  <!-- view-scroll：本视图自己滚动，外层 .app-main 不再滚动 -->
+  <div class="view-scroll" style="display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start">
     <div>
       <div class="card">
         <h3 class="card-title">项目</h3>

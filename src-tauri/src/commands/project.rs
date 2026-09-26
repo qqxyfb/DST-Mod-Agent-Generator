@@ -51,6 +51,13 @@ pub fn import_reference(project_path: String, file_path: String) -> Result<Vec<S
     project::import_reference(&project_path, &file_path)
 }
 
+/// 读取项目对话历史（logs/chat.jsonl）：程序重启 / 切换项目后回填 Tab2 对话区；
+/// 旧项目没有该文件时返回空数组，前端退回占位提示。
+#[tauri::command]
+pub fn load_chat_history(project_path: String) -> Result<Vec<llm::ChatMsg>, String> {
+    project::load_chat(&project_path)
+}
+
 /// 人设顾问系统提示（agent_chat / agent_init 共用）
 fn system_prompt() -> String {
     format!(
@@ -143,6 +150,8 @@ pub async fn agent_init(project_path: String) -> Result<AgentReply, String> {
         });
     }
     let prompt = build_init_prompt(&info.meta, &notes, &refs);
+    // 一键初始化 = 重开一轮人设推演：清空旧日志，保证「重新打开程序回填的对话」与本次结果一致
+    project::reset_chat_log(&project_path)?;
     run_agent(
         &project_path,
         vec![llm::ChatMsg {

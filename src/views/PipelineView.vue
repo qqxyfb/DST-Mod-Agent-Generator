@@ -93,7 +93,8 @@ async function genReport() {
 </script>
 
 <template>
-  <div>
+  <!-- view-scroll：本视图自己滚动，外层 .app-main 不再滚动 -->
+  <div class="view-scroll">
     <div class="card">
       <h3 class="card-title">流水线总览（阶段卡片 — 视觉线 / 代码线可并行切换）</h3>
       <label>项目</label>

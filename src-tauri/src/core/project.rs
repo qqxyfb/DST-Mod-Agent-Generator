@@ -262,6 +262,49 @@ pub fn append_chat_log(path: &str, messages: &[crate::core::llm::ChatMsg], reply
         .map_err(|e| format!("写入聊天记录失败: {e}"))
 }
 
+/// 读取对话历史（logs/chat.jsonl）：程序重启 / 切换项目后回填 Tab2 对话区。
+/// - 逐行 JSON 解析，坏行跳过（不因一行损坏导致整段历史丢失）
+/// - 兼容旧项目：文件不存在时返回空数组
+/// - 只保留最近 MAX_CHAT_HISTORY 条，避免超长历史拖慢 UI 与 LLM 上下文
+pub fn load_chat(path: &str) -> Result<Vec<crate::core::llm::ChatMsg>, String> {
+    let _info = load(path)?;
+    let file = Path::new(path).join("logs").join("chat.jsonl");
+    let text = match std::fs::read_to_string(&file) {
+        Ok(t) => t,
+        Err(_) => return Ok(vec![]),
+    };
+    let mut out: Vec<crate::core::llm::ChatMsg> = vec![];
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("assistant").to_string();
+        let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+        if content.trim().is_empty() {
+            continue;
+        }
+        out.push(crate::core::llm::ChatMsg { role, content });
+    }
+    const MAX_CHAT_HISTORY: usize = 200;
+    if out.len() > MAX_CHAT_HISTORY {
+        out = out.split_off(out.len() - MAX_CHAT_HISTORY);
+    }
+    Ok(out)
+}
+
+/// 清空对话历史：一键初始化 = 重开一轮人设推演，日志与前端内存保持一致（避免旧对话残留）
+pub fn reset_chat_log(path: &str) -> Result<(), String> {
+    let _info = load(path)?;
+    let file = Path::new(path).join("logs").join("chat.jsonl");
+    if file.exists() {
+        std::fs::remove_file(&file).map_err(|e| format!("清空聊天记录失败: {e}"))?;
+    }
+    Ok(())
+}
+
 /// 复制参考图到项目 reference/ 目录（文件名净化 + 冲突自动加序号），
 /// 返回目录内全部参考图文件名。Tab2 上传用。
 pub fn import_reference(project_path: &str, src: &str) -> Result<Vec<String>, String> {

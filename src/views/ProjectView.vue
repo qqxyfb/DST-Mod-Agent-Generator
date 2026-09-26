@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { api } from "../api/tauri";
 import { WORKSHOP_TAG_LABELS, WORKSHOP_TAGS } from "../types";
 import type { AgentReply, ChatMsg, CharacterSheet, ModMeta, ProjectInfo } from "../types";
@@ -30,6 +30,19 @@ const preview = ref<CharacterSheet | null>(null);
 const showPreview = ref(true);
 /** 首轮上下文（描述 + 参考图）是否已注入，避免后续每条消息重复拼接 */
 const baseSent = ref(false);
+/** 对话区 DOM 引用：一键初始化 / 发送后滚动到底部，保证最新消息立即可见 */
+const chatBoxRef = ref<HTMLElement | null>(null);
+/** 对话区顶部提示条（如「已恢复 N 条历史对话」「已生成人物概设」） */
+const chatNotice = ref("");
+/** 一键初始化后短暂高亮最后一条消息，明确告诉用户「初始化已经触发」 */
+const flashInit = ref(false);
+
+/** 把对话区滚到底部：最新消息始终可见 */
+async function scrollChatToBottom() {
+  await nextTick();
+  const el = chatBoxRef.value;
+  if (el) el.scrollTop = el.scrollHeight;
+}
 
 /** 标签下拉面板开关 + 搜索关键字（面板内滚动 / 搜索 / 全选，避免标签表常驻撑高卡片） */
 const showTagPanel = ref(false);
@@ -94,6 +107,8 @@ function newProject() {
   preview.value = null;
   confirmMsg.value = "";
   baseSent.value = false;
+  chatNotice.value = "";
+  flashInit.value = false;
   projectMsg.value = "已切换到新建模式：填写下方信息后点「创建项目」。";
 }
 
@@ -110,6 +125,8 @@ async function createProject() {
     projectPath.value = created.path;
     isNew.value = false;
     baseSent.value = false;
+    chatNotice.value = "";
+    flashInit.value = false;
     refNames.value = [];
     refMsg.value = "";
     messages.value = [
@@ -165,8 +182,16 @@ async function openProject(path: string) {
     description.value = info.notes ?? "";
     refNames.value = await api.listReferences(path);
     refMsg.value = "";
-    if (info.character) {
-      preview.value = info.character.json;
+    // 恢复对话历史（logs/chat.jsonl）：程序重启 / 切换项目后不再需要重新和 Agent 对话
+    chatNotice.value = "";
+    const history = await api.loadChatHistory(path);
+    if (history.length) {
+      messages.value = history;
+      // 历史里已包含角色描述 / 参考图上下文，后续消息不再重复注入
+      baseSent.value = true;
+      chatNotice.value = `已恢复 ${history.length} 条历史对话`;
+    } else if (info.character) {
+      // 本功能上线前创建的旧项目没有 chat.jsonl：退回人设草稿占位提示
       const frozen = !!info.character.frozen;
       const ver = info.character.version;
       messages.value = [
@@ -174,15 +199,17 @@ async function openProject(path: string) {
           role: "assistant",
           content: frozen
             ? `已加载人设（已定稿 ${ver}，可继续对话修改或“重跑”重新生成）。`
-            : "已加载历史人设草稿。",
+            : "已加载历史人设草稿（此前的对话内容未被记录）。",
         },
       ];
-      confirmMsg.value = frozen ? "" : "存在未定稿草稿，确认后才会冻结进入流水线。";
     } else {
       messages.value = [];
-      preview.value = null;
-      confirmMsg.value = "";
     }
+    preview.value = info.character?.json ?? null;
+    confirmMsg.value =
+      info.character && !info.character.frozen ? "存在未定稿草稿，确认后才会冻结进入流水线。" : "";
+    flashInit.value = false;
+    await scrollChatToBottom();
   } catch (e) {
     projectMsg.value = `打开项目失败：${String(e)}`;
   }
@@ -216,11 +243,13 @@ async function pickReference() {
 async function send() {
   const text = input.value.trim();
   if (!text || !project.value || busy.value) return;
-  messages.value.push({ role: "user", content: text });
   input.value = "";
   busy.value = true;
+  chatNotice.value = "";
   try {
-    // 首条消息携带项目基础信息（角色描述 + 参考图文件名），避免逐条重复注入
+    // 首条消息额外携带项目基础信息（角色描述 + 参考图文件名），避免逐条重复注入。
+    // 注意：界面只显示用户输入的原文，发送给 LLM 的才是拼接上下文后的 payload，
+    // 避免同一句话被 push 两次（旧实现的重复发送问题）。
     const ctxNote = [
       description.value.trim() ? `[角色描述]\n${description.value.trim()}` : "",
       refNames.value.length ? `[参考图文件]\n${refNames.value.join("、")}（图像内容由 V1 视觉模型理解）` : "",
@@ -229,15 +258,20 @@ async function send() {
       .join("\n\n");
     const payload = !baseSent.value && ctxNote ? `${text}\n\n${ctxNote}` : text;
     baseSent.value = true;
-    const convo: ChatMsg[] = [...messages.value, { role: "user", content: payload } as ChatMsg];
+    const convo: ChatMsg[] = [...messages.value, { role: "user", content: payload }];
+    messages.value.push({ role: "user", content: text });
+    await scrollChatToBottom();
     const reply: AgentReply = await api.agentChat(project.value.path, convo);
     messages.value.push({ role: "assistant", content: reply.reply });
     if (reply.draft) {
       preview.value = reply.draft;
       confirmMsg.value = "Agent 已产出人设草稿，请确认或继续修改。";
     }
+  } catch (e) {
+    messages.value.push({ role: "assistant", content: `⚠ 请求失败：${String(e)}` });
   } finally {
     busy.value = false;
+    await scrollChatToBottom();
   }
 }
 
@@ -256,8 +290,11 @@ async function initFromAgent() {
     confirmMsg.value = "请先填写「角色人设 / 性格 / 技能想法」或上传参考图，再点一键生成。";
     return;
   }
+  // 重新初始化 = 重开一轮人设推演（后端会清空 logs/chat.jsonl），已有对话时先让用户确认
+  if (messages.value.length && !window.confirm("重新初始化会清空当前对话记录，是否继续？")) return;
   busy.value = true;
   confirmMsg.value = "";
+  chatNotice.value = "";
   try {
     // 先落盘当前表单：描述可能刚改过，后端 agent_init 是从 project.json 读取的
     project.value = await api.updateProject(project.value.path, meta.value, description.value);
@@ -269,11 +306,18 @@ async function initFromAgent() {
       preview.value = reply.draft;
       showPreview.value = true;
       confirmMsg.value = "已生成人物概设与人设草稿，可继续对话修改，或确认定稿。";
+    } else {
+      confirmMsg.value = "已生成人物概设，可继续对话补充或修改。";
     }
+    // 初始化按钮可能在左列下方：触发后给出明确提示并滚到最新内容，避免用户以为没反应
+    chatNotice.value = "✓ 已触发一键初始化，概设见下方对话（已自动滚动到最新）";
+    flashInit.value = true;
+    window.setTimeout(() => (flashInit.value = false), 1800);
   } catch (e) {
     confirmMsg.value = `一键初始化失败：${String(e)}`;
   } finally {
     busy.value = false;
+    await scrollChatToBottom();
   }
 }
 
@@ -289,7 +333,7 @@ async function confirmDraft() {
 
 <template>
   <div class="tab2-grid">
-    <div class="tab2-col">
+    <div class="tab2-col left">
       <div class="card">
         <h3 class="card-title">项目</h3>
         <label>切换已有项目（选择后自动回填下方信息）</label>
@@ -403,16 +447,14 @@ async function confirmDraft() {
           placeholder="例如：一个来自东方的占卜师，怕黑但夜晚视野更远，喜欢吃蓝莓……"
           style="width: 100%"
         ></textarea>
-        <button
-          class="btn-primary"
-          style="margin-top: 10px; width: 100%"
-          :disabled="!project || busy"
-          @click="initFromAgent"
-        >
-          ✨ 一键生成人物概设（初始化）
-        </button>
-        <div class="muted" style="margin-top: 6px">
-          按上方描述 + 参考图清单，自动发起第一次 Agent 请求，产出游戏内人物概设并写入右侧对话区。
+        <!-- 常驻底部：左列自身滚动时按钮也保持可见，不用滚到卡片末尾找初始化入口 -->
+        <div class="init-dock">
+          <button class="btn-primary" style="width: 100%" :disabled="!project || busy" @click="initFromAgent">
+            ✨ 一键生成人物概设（初始化）
+          </button>
+          <div class="muted" style="margin-top: 6px">
+            按上方描述 + 参考图清单，自动发起第一次 Agent 请求，产出游戏内人物概设并写入右侧对话区。
+          </div>
         </div>
       </div>
     </div>
@@ -425,12 +467,25 @@ async function confirmDraft() {
             ✨ 一键生成人物概设
           </button>
         </div>
-        <div class="chat-box">
+        <div ref="chatBoxRef" class="chat-box">
+          <div v-if="chatNotice" class="chat-notice">{{ chatNotice }}</div>
           <div v-if="!messages.length" class="muted">
             还没有对话。填写左侧描述 / 上传参考图后点「一键生成人物概设」，或直接在下方输入你的想法。
           </div>
-          <div v-for="(m, i) in messages" :key="i" class="chat-msg" :class="m.role">
-            <div class="chat-bubble">{{ m.content }}</div>
+          <div
+            v-for="(m, i) in messages"
+            :key="i"
+            class="chat-msg"
+            :class="[m.role, { flash: flashInit && i === messages.length - 1 }]"
+          >
+            <div class="chat-bubble">
+              <!-- 一键初始化的输入模板很长：界面折叠显示，发给 LLM 的仍是完整内容 -->
+              <details v-if="m.role === 'user' && m.content.length > 400">
+                <summary>（一键初始化输入，共 {{ m.content.length }} 字，点击展开）</summary>
+                <div class="collapsed-body">{{ m.content }}</div>
+              </details>
+              <template v-else>{{ m.content }}</template>
+            </div>
           </div>
           <div v-if="busy" class="muted">Agent 思考中…</div>
         </div>
@@ -475,11 +530,13 @@ async function confirmDraft() {
 .tab2-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; height: 100%; min-height: 0; }
 /* min-width:0 是关键：否则网格子项按内容最小宽度撑开，多行输入框会溢出卡片 */
 .tab2-col { min-width: 0; }
+/* 左列自己滚动（外层 .app-main 已改成 overflow:hidden），整页只保留一条滚动条 */
+.tab2-col.left { height: 100%; overflow-y: auto; overflow-x: hidden; padding-right: 6px; }
 /* 右列铺满：纵向 flex + 高度 100%，聊天卡片 flex:1 吃掉全部剩余高度 */
 .tab2-col.right { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .card-head .card-title { margin: 0; }
-.chat-card { display: flex; flex-direction: column; flex: 1; min-height: 360px; }
+.chat-card { display: flex; flex-direction: column; flex: 1; min-height: 260px; }
 .btn-row { display: flex; gap: 8px; margin-top: 10px; }
 .btn-row > button { flex: 1; }
 .chat-box {
@@ -498,6 +555,28 @@ async function confirmDraft() {
 /* 草稿预览卡不抢高度：展开时上限 260px，收起后只剩标题条 */
 .preview-card { margin-bottom: 0; }
 .preview-card .code-block { max-height: 260px; }
+
+/* 初始化按钮常驻左列底部：左列滚动时保持可见 */
+.init-dock {
+  position: sticky; bottom: 0; z-index: 5;
+  margin: 12px -16px -14px; padding: 10px 16px 14px;
+  background: linear-gradient(180deg, rgba(29, 35, 45, 0) 0%, #1d232d 45%);
+  border-radius: 0 0 8px 8px;
+}
+/* 对话区顶部提示条：告知历史已恢复 / 初始化已触发 */
+.chat-notice {
+  flex: none; background: #1d3350; border: 1px solid #4d8cff; color: #dbe7ff;
+  border-radius: 4px; padding: 6px 8px; font-size: 12px;
+}
+/* 一键初始化后短暂高亮最后一条消息 */
+.chat-msg.flash .chat-bubble { animation: chat-flash 1.8s ease-out; }
+@keyframes chat-flash {
+  0% { background: #3d6bb3; box-shadow: inset 0 0 0 2px #4d8cff; }
+  100% { background: #232c3a; box-shadow: inset 0 0 0 0 rgba(77, 140, 255, 0); }
+}
+/* 超长用户消息（一键初始化模板）默认折叠 */
+.chat-bubble details > summary { cursor: pointer; color: #9fb0c3; font-size: 12px; }
+.collapsed-body { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #3c4a5a; }
 
 /* ——— 创意工坊标签多选（折叠面板） ——— */
 .tag-select { position: relative; }

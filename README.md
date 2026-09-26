@@ -101,6 +101,9 @@ npm run tauri build -- --bundles nsis
 3. （可选）Tab1 “一键安装基础依赖”安装 Python 的 Pillow / numpy（图像线 V1 前置）。
 4. Tab2 创建项目 → 上传参考图（复制进 `reference/`）→ 人设对话 → 确认定稿 → Tab3 执行 Stage1 / Stage5 生成代码。
 
+> Tab2 的人设对话按项目持久化到 `<项目>/logs/chat.jsonl`；重新打开程序或切换项目会自动回填历史对话，
+> 不需要重新「一键生成人物概设」。再次点击「一键生成人物概设」会清空该项目的对话记录并重开一轮。
+
 ## 里程碑
 
 | 里程碑 | 内容 | 状态 |
