@@ -15,8 +15,8 @@ pub struct ValidationResult {
 }
 
 #[tauri::command]
-pub fn create_project(meta: project::ModMeta) -> Result<project::ProjectInfo, String> {
-    project::create(meta)
+pub fn create_project(meta: project::ModMeta, notes: String) -> Result<project::ProjectInfo, String> {
+    project::create(meta, notes)
 }
 
 #[tauri::command]
@@ -27,6 +27,22 @@ pub fn list_projects() -> Result<Vec<project::ProjectInfo>, String> {
 #[tauri::command]
 pub fn open_project(path: String) -> Result<project::ProjectInfo, String> {
     project::load(&path)
+}
+
+/// 保存 Mod 基础信息 + Tab2 角色描述文本（Tab2「保存修改」）
+#[tauri::command]
+pub fn update_project(
+    path: String,
+    meta: project::ModMeta,
+    notes: String,
+) -> Result<project::ProjectInfo, String> {
+    project::update(&path, meta, notes)
+}
+
+/// 列出项目 reference/ 目录内已导入的参考图文件名（Tab2 切换项目时回填）
+#[tauri::command]
+pub fn list_references(project_path: String) -> Result<Vec<String>, String> {
+    project::list_references(&project_path)
 }
 
 /// 导入参考图到项目 reference/ 目录（Tab2 上传）

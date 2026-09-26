@@ -121,6 +121,8 @@ export interface ProjectInfo {
   name: string;
   meta: ModMeta;
   created_at: string;
+  /** Tab2「角色人设 / 性格 / 技能想法」自由文本；随项目保存，切换项目时回填 */
+  notes: string;
   character: CharacterArtifact | null;
   pipeline: Record<string, StageState>;
   report: Record<string, unknown> | null;

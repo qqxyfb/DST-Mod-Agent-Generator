@@ -58,6 +58,9 @@ pub struct ProjectInfo {
     pub path: String,
     pub name: String,
     pub meta: ModMeta,
+    /// Tab2「角色人设 / 性格 / 技能想法」自由文本；随项目保存，切换项目时回填
+    #[serde(default)]
+    pub notes: String,
     pub created_at: String,
     #[serde(default)]
     pub character: Option<CharacterArtifact>,
@@ -87,7 +90,7 @@ pub fn sanitize_name(name: &str) -> String {
         .collect()
 }
 
-pub fn create(meta: ModMeta) -> Result<ProjectInfo, String> {
+pub fn create(meta: ModMeta, notes: String) -> Result<ProjectInfo, String> {
     let dir = config::projects_root().join(sanitize_name(&meta.name));
     if dir.exists() {
         return Err(format!("项目已存在: {}", dir.display()));
@@ -99,6 +102,7 @@ pub fn create(meta: ModMeta) -> Result<ProjectInfo, String> {
         path: dir.to_string_lossy().into_owned(),
         name: meta.name.clone(),
         meta,
+        notes,
         created_at: now(),
         ..Default::default()
     };
@@ -116,6 +120,38 @@ pub fn load(path: &str) -> Result<ProjectInfo, String> {
     let file = project_file(Path::new(path));
     let s = std::fs::read_to_string(&file).map_err(|e| format!("读取项目失败: {e}"))?;
     serde_json::from_str(&s).map_err(|e| format!("项目文件解析失败: {e}"))
+}
+
+/// 更新项目基础信息与 Tab2 自由描述文本（「保存修改」按钮 / 切换项目后回写）
+pub fn update(path: &str, meta: ModMeta, notes: String) -> Result<ProjectInfo, String> {
+    let mut info = load(path)?;
+    info.name = meta.name.clone();
+    info.meta = meta;
+    info.notes = notes;
+    save(&info)?;
+    Ok(info)
+}
+
+/// 列出项目 reference/ 目录内已导入的参考图文件名（Tab2 切换项目时回填 UI）
+pub fn list_references(project_path: &str) -> Result<Vec<String>, String> {
+    // 项目不存在时直接报错，避免对任意路径做目录枚举
+    let _info = load(project_path)?;
+    Ok(scan_references(Path::new(project_path)))
+}
+
+/// 扫描 <project>/reference/ 目录内的文件名并排序（import_reference 与 list_references 共用）
+fn scan_references(dir: &Path) -> Vec<String> {
+    let ref_dir = dir.join("reference");
+    let mut names: Vec<String> = if let Ok(rd) = std::fs::read_dir(&ref_dir) {
+        rd.flatten()
+            .filter(|e| e.path().is_file())
+            .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
+            .collect()
+    } else {
+        vec![]
+    };
+    names.sort();
+    names
 }
 
 pub fn list() -> Result<Vec<ProjectInfo>, String> {
@@ -252,14 +288,5 @@ pub fn import_reference(project_path: &str, src: &str) -> Result<Vec<String>, St
     }
     std::fs::copy(src_path, &target).map_err(|e| format!("复制参考图失败：{e}"))?;
 
-    let mut names: Vec<String> = if let Ok(rd) = std::fs::read_dir(&dir) {
-        rd.flatten()
-            .filter(|e| e.path().is_file())
-            .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
-            .collect()
-    } else {
-        vec![]
-    };
-    names.sort();
-    Ok(names)
+    Ok(scan_references(Path::new(project_path)))
 }

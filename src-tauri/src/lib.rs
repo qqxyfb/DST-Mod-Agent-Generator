@@ -28,6 +28,8 @@ pub fn run() {
             commands::project::create_project,
             commands::project::list_projects,
             commands::project::open_project,
+            commands::project::update_project,
+            commands::project::list_references,
             commands::project::import_reference,
             commands::project::agent_chat,
             commands::project::confirm_character,

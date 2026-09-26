@@ -48,6 +48,7 @@ const MOCK_DRAFT: CharacterSheet = {
 const MOCK_PROJECT: ProjectInfo = {
   path: "mock://project/demo",
   name: "demo",
+  notes: "",
   meta: { name: "demo", author: "预览", version: "1.0.0", description: "", tags: [] },
   created_at: new Date().toISOString(),
   character: null,
@@ -63,8 +64,19 @@ function genMock(cmd: string, args: Record<string, unknown>): unknown {
       return [MOCK_PROJECT];
     case "create_project": {
       const meta = args.meta as ModMeta | null;
-      return { ...MOCK_PROJECT, name: meta?.name || "demo", meta: meta ?? MOCK_PROJECT.meta };
+      return {
+        ...MOCK_PROJECT,
+        name: meta?.name || "demo",
+        meta: meta ?? MOCK_PROJECT.meta,
+        notes: String(args.notes ?? ""),
+      };
     }
+    case "update_project": {
+      const meta = args.meta as ModMeta | null;
+      return { ...MOCK_PROJECT, meta: meta ?? MOCK_PROJECT.meta, notes: String(args.notes ?? "") };
+    }
+    case "list_references":
+      return [] as string[];
     case "open_project":
       return MOCK_PROJECT;
     case "validate_dst_dir":
@@ -136,7 +148,12 @@ export const api = {
   checkUpdate: () => call<UpdateInfo>("check_update"),
 
   // Tab2 项目与人设
-  createProject: (meta: ModMeta) => call<ProjectInfo>("create_project", { meta }),
+  createProject: (meta: ModMeta, notes = "") => call<ProjectInfo>("create_project", { meta, notes }),
+  /** 保存当前项目的 Mod 基础信息与角色描述文本（Tab2「保存修改」） */
+  updateProject: (path: string, meta: ModMeta, notes = "") =>
+    call<ProjectInfo>("update_project", { path, meta, notes }),
+  /** 列出项目 reference/ 目录内已导入的参考图文件名（Tab2 切换项目时回填） */
+  listReferences: (projectPath: string) => call<string[]>("list_references", { projectPath }),
   listProjects: () => call<ProjectInfo[]>("list_projects"),
   openProject: (path: string) => call<ProjectInfo>("open_project", { path }),
   agentChat: (projectPath: string, messages: ChatMsg[]) =>

@@ -69,6 +69,8 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 input[type="text"], input[type="password"], textarea, select {
   background: #0f141b; color: #e6e6e6; border: 1px solid #2c3542; border-radius: 4px; padding: 6px 8px;
 }
+/* 多行输入框只允许纵向拉伸：横向拖拽会把输入框撑出卡片 */
+textarea { resize: vertical; max-width: 100%; }
 label { display: block; margin: 8px 0 4px; color: #9fb0c3; font-size: 12px; }
 .btn-primary { background: #4d8cff; color: #fff; border: none; border-radius: 4px; padding: 8px 14px; }
 .btn-secondary { background: #2c3542; color: #e6e6e6; border: 1px solid #3c4a5a; border-radius: 4px; padding: 6px 12px; }
