@@ -18,3 +18,7 @@ projects/*
 cache/*
 !cache/.gitkeep
 *.log
+
+# 运行日志（程序运行时日志 + 打包脚本日志）
+log/*
+!log/.gitkeep

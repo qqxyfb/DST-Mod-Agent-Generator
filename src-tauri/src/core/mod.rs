@@ -8,4 +8,5 @@ pub mod logreader;
 pub mod pipeline;
 pub mod project;
 pub mod py;
+pub mod runtime_log;
 pub mod schema;

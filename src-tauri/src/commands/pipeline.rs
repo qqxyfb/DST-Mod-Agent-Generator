@@ -1,5 +1,6 @@
 //! Tab3 流水线（阶段状态机）相关 command
 use crate::core::pipeline;
+use crate::core::runtime_log;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
@@ -27,6 +28,7 @@ pub async fn start_stage(
     stage_id: String,
     app: AppHandle,
 ) -> Result<Value, String> {
+    runtime_log::log("pipeline", &format!("start_stage: {stage_id} @ {project_path}"));
     pipeline::run_stage(app, &project_path, &stage_id).await
 }
 
@@ -37,12 +39,14 @@ pub async fn rerun_stage(
     stage_id: String,
     app: AppHandle,
 ) -> Result<Value, String> {
+    runtime_log::log("pipeline", &format!("rerun_stage: {stage_id} @ {project_path}"));
     pipeline::run_stage(app, &project_path, &stage_id).await
 }
 
 /// 跳过阶段（标记风险，可恢复执行）
 #[tauri::command]
 pub fn skip_stage(project_path: String, stage_id: String) -> Result<Value, String> {
+    runtime_log::log("pipeline", &format!("skip_stage: {stage_id} @ {project_path}"));
     pipeline::skip(&project_path, &stage_id)?;
     pipeline::state(&project_path)
 }

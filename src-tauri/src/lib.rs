@@ -8,6 +8,9 @@ pub mod core;
 
 /// Tauri 应用启动：注册全部 command。
 pub fn run() {
+    // 初始化运行时日志（log\runtime.log）
+    crate::core::runtime_log::init();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![

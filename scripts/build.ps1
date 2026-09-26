@@ -12,6 +12,9 @@
 #   应用 exe： src-tauri\target\release\dst-mod-agent.exe
 #   安装包：   src-tauri\target\release\bundle\nsis\*.exe（NSIS）
 #              src-tauri\target\release\bundle\msi\*.msi（MSI，需要 WiX，首次自动下载）
+#
+# 日志：
+#   每次构建输出写入 log\build-<yyyyMMdd-HHmmss>.log（保留 30 天，超过自动清理）
 # =============================================================================
 param(
     [switch]$NoBundle,
@@ -24,6 +27,16 @@ $ScriptsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent $ScriptsDir
 Push-Location $Root
 try {
+    # ---------- 0) 构建日志（log\build-*.log）----------
+    $LogDir = Join-Path $Root "log"
+    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    $LogFile = Join-Path $LogDir ("build-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
+    Start-Transcript -Path $LogFile | Out-Null
+    Write-Host "[Log] 本次构建日志：$LogFile"
+    Get-ChildItem -Path $LogDir -Filter "build-*.log" -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+
     # ---------- 1) 前置检查 ----------
     foreach ($c in @("node", "npm", "cargo", "rustc")) {
         if (-not (Get-Command $c -ErrorAction SilentlyContinue)) {
@@ -71,5 +84,6 @@ try {
         }
     }
 } finally {
+    if (Get-Command Stop-Transcript -ErrorAction SilentlyContinue) { Stop-Transcript | Out-Null }
     Pop-Location
 }

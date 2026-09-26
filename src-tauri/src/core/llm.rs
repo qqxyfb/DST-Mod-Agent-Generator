@@ -53,6 +53,7 @@ impl LlmClient {
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
+            crate::core::runtime_log::log("llm", &format!("chat API error {status}: {}", crate::core::config::truncate(&text, 200)));
             return Err(format!("API 错误 {status}: {}", crate::core::config::truncate(&text, 300)));
         }
         let v: Value = resp.json().await.map_err(|e| format!("响应解析失败: {e}"))?;
