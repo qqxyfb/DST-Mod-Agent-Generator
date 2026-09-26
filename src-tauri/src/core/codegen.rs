@@ -180,6 +180,13 @@ fn system_prompt(reference: &str) -> String {
 }
 
 fn render_modinfo(sheet: &CharacterSheet, meta: &project::ModMeta) -> String {
+    // 创意工坊筛选标签（Tab2 多选结果）→ modinfo 的 server_filter_tags
+    let tags: String = meta
+        .tags
+        .iter()
+        .map(|t| format!("\"{}\"", t.replace('"', "'")))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "-- modinfo.lua（DST Mod Agent Generator 自动生成，请勿手动编辑）\n\
          return {{\n\
@@ -191,12 +198,14 @@ fn render_modinfo(sheet: &CharacterSheet, meta: &project::ModMeta) -> String {
          \tdst_compatible = true,\n\
          \tdont_starve_compatible = false,\n\
          \tall_clients_require_mod = true,\n\
+         \tserver_filter_tags = {{ {tags} }},\n\
          \tconfiguration_options = {{}}\n\
          }}\n",
         name = sheet.char_name,
         desc = meta.description.replace('"', "'"),
         author = meta.author.replace('"', "'"),
         version = meta.version,
+        tags = tags,
     )
 }
 

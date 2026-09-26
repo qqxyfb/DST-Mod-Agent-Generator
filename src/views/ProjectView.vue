@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { api } from "../api/tauri";
+import { WORKSHOP_TAG_LABELS, WORKSHOP_TAGS } from "../types";
 import type { AgentReply, ChatMsg, CharacterSheet, ModMeta, ProjectInfo } from "../types";
 
 // ——— 表单状态：Mod 基础信息 + 角色描述 ———
 const meta = ref<ModMeta>({ name: "", author: "", version: "1.0.0", description: "", tags: [] });
 const description = ref("");
-/** 创意工坊标签输入框的原始文本（逗号分隔），提交时解析为数组写入 meta.tags */
-const tagsText = ref("");
+/** 自定义标签输入框（不在预置标签表里的值从这里添加） */
+const customTag = ref("");
 const refNames = ref<string[]>([]);
 const refMsg = ref("");
 
@@ -25,19 +26,30 @@ const input = ref("");
 const busy = ref(false);
 const confirmMsg = ref("");
 const preview = ref<CharacterSheet | null>(null);
+/** 结构化草稿默认展开；收起后对话区可以独占右列全部高度 */
+const showPreview = ref(true);
+/** 首轮上下文（描述 + 参考图）是否已注入，避免后续每条消息重复拼接 */
 const baseSent = ref(false);
+
+/** 已选标签中不属于预置表的部分（可单独删除） */
+const customTags = computed(() => meta.value.tags.filter((t) => !WORKSHOP_TAGS.includes(t)));
 
 onMounted(async () => {
   projects.value = await api.listProjects();
   if (projects.value.length) await openProject(projects.value[0].path);
 });
 
-/** 标签文本 → 数组（支持中英文逗号） */
-function parseTags(text: string): string[] {
-  return text
-    .split(/[,，]/)
-    .map((t) => t.trim())
-    .filter(Boolean);
+/** 添加自定义标签（去重、去空白） */
+function addCustomTag() {
+  const t = customTag.value.trim();
+  if (!t) return;
+  if (!meta.value.tags.includes(t)) meta.value.tags = [...meta.value.tags, t];
+  customTag.value = "";
+}
+
+/** 移除单个标签 */
+function removeTag(t: string) {
+  meta.value.tags = meta.value.tags.filter((x) => x !== t);
 }
 
 /** 重置为「新建」态：清空表单与对话，等用户点「创建项目」再落盘 */
@@ -46,7 +58,7 @@ function newProject() {
   project.value = null;
   projectPath.value = "";
   meta.value = { name: "", author: "", version: "1.0.0", description: "", tags: [] };
-  tagsText.value = "";
+  customTag.value = "";
   description.value = "";
   refNames.value = [];
   refMsg.value = "";
@@ -64,7 +76,7 @@ async function createProject() {
     return;
   }
   try {
-    meta.value.tags = parseTags(tagsText.value);
+    // 标签直接来自多选框 / 自定义标签，无需再做文本解析
     const created = await api.createProject(meta.value, description.value);
     project.value = created;
     projectPath.value = created.path;
@@ -75,7 +87,7 @@ async function createProject() {
     messages.value = [
       {
         role: "assistant",
-        content: `项目 ${created.name} 已创建。上传参考图、填写描述后即可与我对话迭代人设。`,
+        content: `项目 ${created.name} 已创建。上传参考图、填写角色描述后，点右上角「一键生成人物概设」即可开始第一轮人设推演。`,
       },
     ];
     projects.value = await api.listProjects();
@@ -92,7 +104,6 @@ async function saveProject() {
     return;
   }
   try {
-    meta.value.tags = parseTags(tagsText.value);
     project.value = await api.updateProject(project.value.path, meta.value, description.value);
     projects.value = await api.listProjects();
     projectMsg.value = "✓ 已保存 Mod 基础信息与角色描述";
@@ -111,6 +122,7 @@ async function openProject(path: string) {
     isNew.value = false;
     projectMsg.value = "";
     baseSent.value = false;
+    customTag.value = "";
     // 回填 Mod 基础信息（tags 复制一份，避免与 project.json 数据共享引用）
     meta.value = {
       name: info.meta.name,
@@ -119,7 +131,6 @@ async function openProject(path: string) {
       description: info.meta.description,
       tags: [...(info.meta.tags ?? [])],
     };
-    tagsText.value = (info.meta.tags ?? []).join(", ");
     // 回填 Tab2 角色描述文本与已导入的参考图文件名
     description.value = info.notes ?? "";
     refNames.value = await api.listReferences(path);
@@ -200,6 +211,42 @@ async function send() {
   }
 }
 
+/**
+ * 一键初始化：不用用户手写第一句话。
+ * 后端按固定模板把 Mod 基础信息 + 角色描述 + 参考图清单组装成首轮提示词，产出「游戏内人物概设」，
+ * 直接作为对话区的第一条消息。
+ */
+async function initFromAgent() {
+  if (busy.value) return;
+  if (!project.value) {
+    projectMsg.value = "请先创建 / 选择项目，再执行一键初始化。";
+    return;
+  }
+  if (!description.value.trim() && !refNames.value.length) {
+    confirmMsg.value = "请先填写「角色人设 / 性格 / 技能想法」或上传参考图，再点一键生成。";
+    return;
+  }
+  busy.value = true;
+  confirmMsg.value = "";
+  try {
+    // 先落盘当前表单：描述可能刚改过，后端 agent_init 是从 project.json 读取的
+    project.value = await api.updateProject(project.value.path, meta.value, description.value);
+    const reply = await api.agentInit(project.value.path);
+    // 概设作为对话第一条消息（初始化即视为首轮，后续消息不再重复注入上下文）
+    messages.value = [{ role: "assistant", content: reply.reply }];
+    baseSent.value = true;
+    if (reply.draft) {
+      preview.value = reply.draft;
+      showPreview.value = true;
+      confirmMsg.value = "已生成人物概设与人设草稿，可继续对话修改，或确认定稿。";
+    }
+  } catch (e) {
+    confirmMsg.value = `一键初始化失败：${String(e)}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function confirmDraft() {
   if (!project.value) return;
   const r = await api.confirmCharacter(project.value.path);
@@ -241,8 +288,39 @@ async function confirmDraft() {
         <input type="text" v-model="meta.version" style="width: 100%" />
         <label>简介</label>
         <textarea v-model="meta.description" rows="2" style="width: 100%"></textarea>
-        <label>创意工坊标签（逗号分隔）</label>
-        <input type="text" v-model="tagsText" placeholder="角色, 生存" style="width: 100%" />
+
+        <label>创意工坊标签（多选，写入 modinfo 的 server_filter_tags）</label>
+        <div class="tag-picker">
+          <label
+            v-for="t in WORKSHOP_TAGS"
+            :key="t"
+            class="tag-chip"
+            :class="{ on: meta.tags.includes(t) }"
+          >
+            <input type="checkbox" :value="t" v-model="meta.tags" />
+            <span>{{ WORKSHOP_TAG_LABELS[t] ?? t }}</span>
+          </label>
+        </div>
+        <div class="tag-add">
+          <input
+            type="text"
+            v-model="customTag"
+            placeholder="自定义标签，回车添加"
+            style="flex: 1"
+            @keydown.enter.prevent="addCustomTag"
+          />
+          <button class="btn-secondary" @click="addCustomTag">添加</button>
+        </div>
+        <div v-if="customTags.length" class="tag-picker" style="margin-top: 8px">
+          <span v-for="t in customTags" :key="t" class="tag-chip on">
+            <span>{{ t }}</span>
+            <button class="tag-del" title="移除标签" @click="removeTag(t)">×</button>
+          </span>
+        </div>
+        <div class="muted" style="margin-top: 6px">
+          已选 {{ meta.tags.length }} 个：{{ meta.tags.length ? meta.tags.join("、") : "（未选择）" }}
+        </div>
+
         <div class="btn-row">
           <button class="btn-secondary" @click="newProject">新建项目</button>
           <button class="btn-primary" :disabled="!isNew" @click="createProject">创建项目</button>
@@ -270,19 +348,38 @@ async function confirmDraft() {
           placeholder="例如：一个来自东方的占卜师，怕黑但夜晚视野更远，喜欢吃蓝莓……"
           style="width: 100%"
         ></textarea>
+        <button
+          class="btn-primary"
+          style="margin-top: 10px; width: 100%"
+          :disabled="!project || busy"
+          @click="initFromAgent"
+        >
+          ✨ 一键生成人物概设（初始化）
+        </button>
+        <div class="muted" style="margin-top: 6px">
+          按上方描述 + 参考图清单，自动发起第一次 Agent 请求，产出游戏内人物概设并写入右侧对话区。
+        </div>
       </div>
     </div>
 
-    <div class="tab2-col">
-      <div class="card">
-        <h3 class="card-title">人设 Agent 对话</h3>
+    <div class="tab2-col right">
+      <div class="card chat-card">
+        <div class="card-head">
+          <h3 class="card-title">人设 Agent 对话</h3>
+          <button class="btn-primary" :disabled="!project || busy" @click="initFromAgent">
+            ✨ 一键生成人物概设
+          </button>
+        </div>
         <div class="chat-box">
+          <div v-if="!messages.length" class="muted">
+            还没有对话。填写左侧描述 / 上传参考图后点「一键生成人物概设」，或直接在下方输入你的想法。
+          </div>
           <div v-for="(m, i) in messages" :key="i" class="chat-msg" :class="m.role">
             <div class="chat-bubble">{{ m.content }}</div>
           </div>
           <div v-if="busy" class="muted">Agent 思考中…</div>
         </div>
-        <div style="display: flex; gap: 8px; margin-top: 10px">
+        <div class="chat-input">
           <input
             type="text"
             v-model="input"
@@ -305,9 +402,14 @@ async function confirmDraft() {
         </button>
       </div>
 
-      <div v-if="preview" class="card">
-        <h3 class="card-title">人设结构化草稿预览</h3>
-        <pre class="code-block">{{ JSON.stringify(preview, null, 2) }}</pre>
+      <div v-if="preview" class="card preview-card">
+        <div class="card-head">
+          <h3 class="card-title">人设结构化草稿预览</h3>
+          <button class="btn-secondary" @click="showPreview = !showPreview">
+            {{ showPreview ? "收起" : "展开" }}
+          </button>
+        </div>
+        <pre v-if="showPreview" class="code-block">{{ JSON.stringify(preview, null, 2) }}</pre>
       </div>
     </div>
   </div>
@@ -315,15 +417,22 @@ async function confirmDraft() {
 
 <style scoped>
 /* 左列固定 340px，右列 minmax(0,1fr) 允许收缩，避免聊天/预览把整行撑宽 */
-.tab2-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
+.tab2-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; height: 100%; min-height: 0; }
 /* min-width:0 是关键：否则网格子项按内容最小宽度撑开，多行输入框会溢出卡片 */
 .tab2-col { min-width: 0; }
+/* 右列铺满：纵向 flex + 高度 100%，聊天卡片 flex:1 吃掉全部剩余高度 */
+.tab2-col.right { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.card-head .card-title { margin: 0; }
+.chat-card { display: flex; flex-direction: column; flex: 1; min-height: 360px; }
 .btn-row { display: flex; gap: 8px; margin-top: 10px; }
 .btn-row > button { flex: 1; }
 .chat-box {
   background: #0f141b; border: 1px solid #2c3542; border-radius: 6px;
-  padding: 10px; height: 380px; overflow: auto; display: flex; flex-direction: column; gap: 8px;
+  padding: 10px; flex: 1; min-height: 120px; overflow: auto;
+  display: flex; flex-direction: column; gap: 8px;
 }
+.chat-input { display: flex; gap: 8px; margin-top: 10px; }
 .chat-msg { display: flex; }
 .chat-msg.user { justify-content: flex-end; }
 .chat-bubble {
@@ -331,4 +440,24 @@ async function confirmDraft() {
 }
 .chat-msg.user .chat-bubble { background: #24406e; }
 .chat-msg.assistant .chat-bubble { background: #232c3a; }
+/* 草稿预览卡不抢高度：展开时上限 260px，收起后只剩标题条 */
+.preview-card { margin-bottom: 0; }
+.preview-card .code-block { max-height: 260px; }
+
+/* ——— 创意工坊标签多选 ——— */
+.tag-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 覆写全局 label 的 block / margin，让标签变成小胶囊 */
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 4px; margin: 0; cursor: pointer;
+  padding: 3px 8px; border: 1px solid #3c4a5a; border-radius: 999px;
+  background: #0f141b; color: #9fb0c3; font-size: 12px; user-select: none;
+}
+.tag-chip.on { border-color: #4d8cff; background: #1d3350; color: #dbe7ff; }
+.tag-chip input[type="checkbox"] { margin: 0; }
+.tag-del {
+  background: transparent; border: none; color: #9fb0c3; font-size: 13px; line-height: 1;
+  padding: 0 2px; cursor: pointer;
+}
+.tag-del:hover { color: #ff6b6b; }
+.tag-add { display: flex; gap: 8px; margin-top: 8px; }
 </style>

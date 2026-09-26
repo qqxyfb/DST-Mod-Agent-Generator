@@ -51,36 +51,37 @@ pub fn import_reference(project_path: String, file_path: String) -> Result<Vec<S
     project::import_reference(&project_path, &file_path)
 }
 
-/// 人设对话：调用 LLM 迭代角色设定；回复中带完整 JSON 时产出草稿并保存
-#[tauri::command]
-pub async fn agent_chat(
-    project_path: String,
-    messages: Vec<llm::ChatMsg>,
-) -> Result<AgentReply, String> {
-    let _info = project::load(&project_path)?;
-    let cfg = config::load();
-    if cfg.llm.base_url.trim().is_empty() || cfg.llm.model.trim().is_empty() {
-        return Ok(AgentReply {
-            reply: "请先在 Tab1 配置 LLM API（Base URL / 模型名称），再开始人设对话。".into(),
-            draft: None,
-        });
-    }
-
-    let client = llm::LlmClient::new(cfg.llm.clone());
-    let system = format!(
+/// 人设顾问系统提示（agent_chat / agent_init 共用）
+fn system_prompt() -> String {
+    format!(
         "你是《饥荒：联机版》(Don't Starve Together) 的人物 Mod 人设顾问，根据用户的中文描述逐步提炼完整角色设定。\n\
          {}\n\
          对话规则：\n\
          1. 信息不足时用中文简短提问（每次最多 3 个问题），不要替用户编造关键设定。\n\
          2. 当信息足以定稿时，回复 = 一段中文总结 + 完整 JSON 草稿（严格符合上述结构，不要多余字段）。\n\
-         3. 三围填 50~300 的整数，未知可默认 150；starter_items 使用 DST 原生物品名，最多 6 个；专属道具放入 special_items。",
+         3. 三围填 50~300 的整数，未知可默认 150；starter_items 使用 DST 原生物品名，最多 6 个；专属道具放入 special_items。\n\
+         4. 本工具只复用 ESC 模板骨骼动作，不生成 Spriter 关键帧动画；不要输出动画/骨骼相关内容。",
         schema::json_schema_hint()
-    );
+    )
+}
+
+/// 统一的 LLM 调用 + 草稿落盘流程（agent_chat / agent_init 共用）
+async fn run_agent(project_path: &str, messages: Vec<llm::ChatMsg>) -> Result<AgentReply, String> {
+    let _info = project::load(project_path)?;
+    let cfg = config::load();
+    if cfg.llm.base_url.trim().is_empty() || cfg.llm.model.trim().is_empty() {
+        return Ok(AgentReply {
+            reply: "请先点右上角「设置」配置 LLM API（Base URL / 模型名称），再开始人设对话。".into(),
+            draft: None,
+        });
+    }
+
+    let client = llm::LlmClient::new(cfg.llm.clone());
     let reply = match client
         .chat({
             let mut msgs = vec![llm::ChatMsg {
                 role: "system".into(),
-                content: system,
+                content: system_prompt(),
             }];
             msgs.extend(messages.clone());
             msgs
@@ -95,7 +96,7 @@ pub async fn agent_chat(
             })
         }
     };
-    let _ = project::append_chat_log(&project_path, &messages, &reply);
+    let _ = project::append_chat_log(project_path, &messages, &reply);
 
     // 尝试从回复提取人设 JSON：有效则保存草稿
     let draft = llm::extract_json(&reply)
@@ -103,7 +104,7 @@ pub async fn agent_chat(
     if let Some(sheet) = draft {
         let errs = sheet.validate();
         if errs.is_empty() {
-            let mut info = project::load(&project_path)?;
+            let mut info = project::load(project_path)?;
             project::save_draft(&mut info, sheet.clone())?;
             return Ok(AgentReply {
                 reply,
@@ -116,6 +117,80 @@ pub async fn agent_chat(
         });
     }
     Ok(AgentReply { reply, draft: None })
+}
+
+/// 人设对话：调用 LLM 迭代角色设定；回复中带完整 JSON 时产出草稿并保存
+#[tauri::command]
+pub async fn agent_chat(
+    project_path: String,
+    messages: Vec<llm::ChatMsg>,
+) -> Result<AgentReply, String> {
+    run_agent(&project_path, messages).await
+}
+
+/// 一键初始化：不需要用户手写第一句，按程序内置的固定模板自动发起第一轮 Agent 请求，
+/// 输入 = Mod 基础信息 + 用户描述（project.json 的 notes）+ 参考图文件名，
+/// 输出 = 游戏内人物概设 + 人设 JSON 草稿（作为对话区的第一条消息）。
+#[tauri::command]
+pub async fn agent_init(project_path: String) -> Result<AgentReply, String> {
+    let info = project::load(&project_path)?;
+    let refs = project::list_references(&project_path)?;
+    let notes = info.notes.trim().to_string();
+    if notes.is_empty() && refs.is_empty() {
+        return Ok(AgentReply {
+            reply: "请先填写「角色人设 / 性格 / 技能想法」（可选：导入参考图），再点「一键初始化」。".into(),
+            draft: None,
+        });
+    }
+    let prompt = build_init_prompt(&info.meta, &notes, &refs);
+    run_agent(
+        &project_path,
+        vec![llm::ChatMsg {
+            role: "user".into(),
+            content: prompt,
+        }],
+    )
+    .await
+}
+
+/// 一键初始化的固定首轮提示词（模板固定在程序内，用户无需自己写第一句话）
+fn build_init_prompt(meta: &project::ModMeta, notes: &str, refs: &[String]) -> String {
+    let tags = if meta.tags.is_empty() {
+        "（未选择）".to_string()
+    } else {
+        meta.tags.join("、")
+    };
+    let notes = if notes.is_empty() { "（未填写）" } else { notes };
+    let refs = if refs.is_empty() {
+        "（未导入参考图）".to_string()
+    } else {
+        format!("{}（MVP 阶段图像内容不解析，仅作命名与后续 V1 视觉模型的输入）", refs.join("、"))
+    };
+    format!(
+        "【一键初始化 · 第 1 轮】请基于以下资料，一次性产出该角色在《饥荒：联机版》中的完整游戏内概设，并按系统提示的 JSON 结构给出人设草稿。\n\n\
+         一、Mod 基础信息\n\
+         - Mod 名称：{name}\n\
+         - 作者：{author}\n\
+         - 版本：{version}\n\
+         - 简介：{desc}\n\
+         - 创意工坊标签：{tags}\n\n\
+         二、用户描述（角色人设 / 性格 / 技能想法）\n{notes}\n\n\
+         三、参考图清单\n{refs}\n\n\
+         四、输出要求（严格按此顺序）\n\
+         1. 先用中文输出「游戏内人物概设」，依次包含：一句话定位、三围（生命/饥饿/精神）、被动技能、主动技能、开局物品、专属道具、性格与台词风格、优缺点。\n\
+         2. 概设之后附上完整 JSON 人设草稿（严格符合系统提示中的 JSON 结构，不要多余字段）。\n\
+         3. char_name 依据 Mod 名称推导（小写字母/数字/下划线），display_name 使用中文名。\n\
+         4. 三围取 50~300 的整数，用户描述未提及时默认 150；starter_items 最多 6 个且使用 DST 原生物品名。\n\
+         5. 用户描述含糊之处按合理推断给出，并在概设中标注「待确认」，不要臆造像素级美术细节。\n\
+         6. 不要输出任何 Spriter / 骨骼动画相关内容（本工具只复用 ESC 模板骨骼动作）。",
+        name = &meta.name,
+        author = &meta.author,
+        version = &meta.version,
+        desc = &meta.description,
+        tags = &tags,
+        notes = notes,
+        refs = &refs,
+    )
 }
 
 /// 确认人设定稿：校验通过后冻结为 vN 版本快照

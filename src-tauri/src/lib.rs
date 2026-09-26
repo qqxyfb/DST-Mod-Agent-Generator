@@ -32,6 +32,7 @@ pub fn run() {
             commands::project::list_references,
             commands::project::import_reference,
             commands::project::agent_chat,
+            commands::project::agent_init,
             commands::project::confirm_character,
             // Tab3 流水线
             commands::pipeline::pipeline_state,

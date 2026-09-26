@@ -55,6 +55,68 @@ export interface UpdateInfo {
   message: string;
 }
 
+/** DST 创意工坊筛选标签（写入 modinfo.lua 的 server_filter_tags），Tab2 多选使用 */
+export const WORKSHOP_TAGS: string[] = [
+  "Character",
+  "Creature",
+  "Item",
+  "Weapon",
+  "Armor",
+  "Hat",
+  "Tool",
+  "Food",
+  "Structure",
+  "World",
+  "Tweak",
+  "Tuning",
+  "Map",
+  "UI",
+  "Sound",
+  "Server",
+  "Client",
+  "Language",
+  "Art",
+  "Cosmetic",
+  "Balance",
+  "Difficulty",
+  "Quality of Life",
+  "Utility",
+  "Fun",
+  "Bug Fix",
+  "Library",
+];
+
+/** 标签英文值 → 界面中文名（modinfo.lua 里仍写英文值，界面展示中文更友好） */
+export const WORKSHOP_TAG_LABELS: Record<string, string> = {
+  Character: "角色",
+  Creature: "生物",
+  Item: "物品",
+  Weapon: "武器",
+  Armor: "护甲",
+  Hat: "帽子",
+  Tool: "工具",
+  Food: "食物",
+  Structure: "建筑",
+  World: "世界",
+  Tweak: "机制调整",
+  Tuning: "数值调整",
+  Map: "地图",
+  UI: "界面",
+  Sound: "音效",
+  Server: "服务器",
+  Client: "客户端",
+  Language: "语言 / 翻译",
+  Art: "美术",
+  Cosmetic: "外观",
+  Balance: "平衡性",
+  Difficulty: "难度",
+  "Quality of Life": "便捷优化",
+  Utility: "实用工具",
+  Fun: "趣味",
+  "Bug Fix": "Bug 修复",
+  Library: "前置库",
+};
+
 export interface ModMeta {
   name: string;
   author: string;

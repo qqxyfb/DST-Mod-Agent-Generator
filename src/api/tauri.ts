@@ -104,6 +104,11 @@ function genMock(cmd: string, args: Record<string, unknown>): unknown {
       return { current_version: "0.1.0", latest_version: null, update_available: false, message: "（浏览器预览）" } as UpdateInfo;
     case "agent_chat":
       return { reply: "（浏览器预览）请通过 Tauri 运行以调用 LLM。以下是占位草稿。", draft: MOCK_DRAFT } as AgentReply;
+    case "agent_init":
+      return {
+        reply: "（浏览器预览）一键初始化需在 Tauri 中运行：将按固定模板读取 Mod 信息 + 角色描述 + 参考图，自动发起第一轮请求。",
+        draft: MOCK_DRAFT,
+      } as AgentReply;
     case "confirm_character":
       return { ok: true, errors: ["（浏览器预览）已冻结 v1"] };
     case "pipeline_state":
@@ -158,6 +163,8 @@ export const api = {
   openProject: (path: string) => call<ProjectInfo>("open_project", { path }),
   agentChat: (projectPath: string, messages: ChatMsg[]) =>
     call<AgentReply>("agent_chat", { projectPath, messages }),
+  /** 一键初始化：按内置固定模板自动发起第一轮 Agent 请求，产出游戏内人物概设 */
+  agentInit: (projectPath: string) => call<AgentReply>("agent_init", { projectPath }),
   confirmCharacter: (projectPath: string) => call<ValidationResult>("confirm_character", { projectPath }),
   /** 选择参考图（Tauri dialog 插件；浏览器预览返回 null） */
   pickReferenceFiles: async (): Promise<string[] | null> => {
