@@ -49,12 +49,22 @@ impl LlmClient {
         if !self.cfg.api_key.is_empty() {
             req = req.bearer_auth(&self.cfg.api_key);
         }
-        let resp = req.send().await.map_err(|e| format!("网络错误: {e}"))?;
+        let resp = match req.send().await {
+            Ok(r) => r,
+            Err(e) if e.is_timeout() => {
+                return Err("请求超时：服务端响应过慢或网络不稳定，请检查网络后重试".to_string());
+            }
+            Err(e) => {
+                return Err(format!(
+                    "无法连接服务器：{e}（请检查 Base URL、网络与代理设置）"
+                ));
+            }
+        };
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
             crate::core::runtime_log::log("llm", &format!("chat API error {status}: {}", crate::core::config::truncate(&text, 200)));
-            return Err(format!("API 错误 {status}: {}", crate::core::config::truncate(&text, 300)));
+            return Err(describe_http_error(status, &text, "chat/completions"));
         }
         let v: Value = resp.json().await.map_err(|e| format!("响应解析失败: {e}"))?;
         v["choices"][0]["message"]["content"]
@@ -86,4 +96,20 @@ pub fn extract_json(s: &str) -> Option<Value> {
         return None;
     }
     serde_json::from_str(&s[start..=end]).ok()
+}
+
+/// 将 OpenAI 兼容 API 的非 2xx 响应转成清晰、可操作的中文提示。
+/// 供连通性测试与业务调用共用，帮助用户区分配置错误与服务端临时故障。
+pub fn describe_http_error(status: reqwest::StatusCode, text: &str, endpoint: &str) -> String {
+    let clipped = crate::core::config::truncate(text, 160);
+    match status.as_u16() {
+        401 | 403 => format!("API Key 无效或无权限（{status}）：{clipped}"),
+        404 => format!(
+            "接口不存在（404）：该地址未提供 {endpoint} 端点，请核对 Base URL（OpenAI 兼容地址通常以 /v1 结尾），或确认服务端已开放该接口"
+        ),
+        429 => "请求过于频繁（429）：请稍后重试".to_string(),
+        503 => "模型服务繁忙（503）：服务端临时负载高，请稍后重试（配置本身无误）".to_string(),
+        500..=599 => format!("服务端错误（{status}）：{clipped}"),
+        _ => format!("API 错误（{status}）：{clipped}"),
+    }
 }

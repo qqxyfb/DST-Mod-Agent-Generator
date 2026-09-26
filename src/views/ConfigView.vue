@@ -151,7 +151,7 @@ function pickDstDir() {
         <div>
           <h4 style="margin: 0 0 4px">图像生成 API（图生图 / 文生图）</h4>
           <label>Base URL</label>
-          <input type="text" v-model="cfg.image.base_url" placeholder="OpenAI 兼容图像接口（V1 接入）" style="width: 100%" />
+          <input type="text" v-model="cfg.image.base_url" placeholder="OpenAI 兼容图像接口" style="width: 100%" />
           <label>API Key</label>
           <input type="password" v-model="cfg.image.api_key" style="width: 100%" />
           <label>模型名称</label>

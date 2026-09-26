@@ -70,16 +70,96 @@ pub async fn llm_test(cfg: config::LlmConfig) -> TestResult {
             ok: true,
             message: format!("连通正常（模型：{}）", cfg.model),
         },
-        Err(e) => TestResult { ok: false, message: e },
+        Err(e) => {
+            // 启发式提醒：图像/视频模型不能用于 LLM 对话，避免 404 提示误导
+            let lower = cfg.model.to_lowercase();
+            let mut msg = e;
+            if lower.contains("image") || lower.contains("video") || lower.contains("img") {
+                msg.push_str("（提示：该模型名可能是图像/视频模型，LLM 对话请改用文本模型，如 opc-txt-v1）");
+            }
+            TestResult {
+                ok: false,
+                message: msg,
+            }
+        }
     }
 }
 
-/// 图像接口测试：V1 预留（MVP 不接入）
+/// 图像接口连通性测试：发一个最小 images/generations 请求（OpenAI 兼容）
 #[tauri::command]
-pub fn image_test(_cfg: config::ImageConfig) -> TestResult {
+pub async fn image_test(cfg: config::ImageConfig) -> TestResult {
+    if cfg.base_url.trim().is_empty() || cfg.model.trim().is_empty() {
+        return TestResult {
+            ok: false,
+            message: "请先填写 Base URL 与模型名称".into(),
+        };
+    }
+    let base = cfg.base_url.trim_end_matches('/').to_string();
+    let url = if base.ends_with("/images/generations") {
+        base
+    } else {
+        format!("{base}/images/generations")
+    };
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return TestResult {
+                ok: false,
+                message: format!("初始化 HTTP 客户端失败：{e}"),
+            }
+        }
+    };
+    let body = serde_json::json!({
+        "model": cfg.model,
+        "prompt": "test",
+        "size": "256x256",
+        "n": 1,
+    });
+    let mut req = client.post(&url).json(&body);
+    if !cfg.api_key.is_empty() {
+        req = req.bearer_auth(&cfg.api_key);
+    }
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) if e.is_timeout() => {
+            return TestResult {
+                ok: false,
+                message: "请求超时：图像生成较慢或服务繁忙，请稍后重试".into(),
+            }
+        }
+        Err(e) => {
+            return TestResult {
+                ok: false,
+                message: format!("无法连接服务器：{e}（请检查 Base URL、网络与代理设置）"),
+            }
+        }
+    };
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        crate::core::runtime_log::log("image", &format!("image API error {status}: {}", crate::core::config::truncate(&text, 200)));
+        return TestResult {
+            ok: false,
+            message: crate::core::llm::describe_http_error(status, &text, "images/generations"),
+        };
+    }
+    // 校验响应包含 data[0].url 或 b64_json（OpenAI 兼容图像接口标准结构）
+    let valid = serde_json::from_str::<Value>(&text)
+        .map(|v| v["data"][0]["url"].is_string() || v["data"][0]["b64_json"].is_string())
+        .unwrap_or(false);
     TestResult {
-        ok: false,
-        message: "图像接口 V1 预留，尚未接入（OpenAI 兼容 images API 将在 V1 支持）".into(),
+        ok: valid,
+        message: if valid {
+            format!("图像接口连通正常（模型：{}）", cfg.model)
+        } else {
+            format!(
+                "图像接口响应异常：{}",
+                crate::core::config::truncate(&text, 160)
+            )
+        },
     }
 }
 
