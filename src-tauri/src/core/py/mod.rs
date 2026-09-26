@@ -34,6 +34,17 @@ impl PythonBridge {
         }
     }
 
+    /// 查询已安装发行版版本（importlib.metadata），未安装返回 None
+    pub fn module_version(&self, dist: &str) -> Option<String> {
+        let script = format!("import importlib.metadata as m; print(m.version(\"{dist}\"))");
+        match Command::new(&self.python).arg("-c").arg(&script).output() {
+            Ok(out) if out.status.success() => {
+                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if s.is_empty() { None } else { Some(s) }
+            }
+            _ => None,
+        }
+    }
     /// V1：调用图像管线命令
     /// fn run(&self, cmd: &str, args: Value) -> Result<Value, String> { todo!() }
     #[allow(dead_code)]

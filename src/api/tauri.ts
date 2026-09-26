@@ -76,6 +76,7 @@ function genMock(cmd: string, args: Record<string, unknown>): unknown {
     case "python_env_status":
       return [
         { name: "Python 环境", ready: false, detail: "（浏览器预览）Tauri 运行后探测" },
+        { name: "基础依赖（Pillow / numpy）", ready: false, detail: "（浏览器预览）安装 Pillow / numpy" },
         { name: "rembg 抠图", ready: false, detail: "V1 接入" },
         { name: "SAM2 分割", ready: false, detail: "V1 接入" },
         { name: "autocompiler.exe", ready: false, detail: "用户自装" },

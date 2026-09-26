@@ -102,6 +102,21 @@ pub fn python_env_status() -> Vec<EnvItem> {
         }),
     }
 
+    // 基础依赖（Pillow / numpy）：MVP 一键安装目标，刷新后可直观确认
+    let pil = bridge.as_ref().and_then(|b| b.module_version("Pillow"));
+    let np = bridge.as_ref().and_then(|b| b.module_version("numpy"));
+    let base_ok = pil.is_some() && np.is_some();
+    let base_detail = match (&pil, &np) {
+        (Some(p), Some(n)) => format!("Pillow {p} / numpy {n}"),
+        (Some(p), None) => format!("Pillow {p} 已装，numpy 缺失（点“一键安装基础依赖”）"),
+        (None, Some(_)) => "Pillow 缺失，numpy 已装（点“一键安装基础依赖”）".into(),
+        (None, None) => "未安装（点“一键安装基础依赖”安装 Pillow / numpy）".into(),
+    };
+    items.push(EnvItem {
+        name: "基础依赖（Pillow / numpy）".into(),
+        ready: base_ok,
+        detail: base_detail,
+    });
     let rembg = bridge.as_ref().map(|b| b.module_available("rembg")).unwrap_or(false);
     items.push(EnvItem {
         name: "rembg 抠图".into(),
@@ -157,7 +172,8 @@ pub async fn python_env_setup() -> Result<EnvSetupResult, String> {
         });
     }
     let out = tokio::process::Command::new(&bridge.python)
-        .args(["-m", "pip", "install", "-r"])
+        .env("PYTHONIOENCODING", "utf-8")
+        .args(["-m", "pip", "install", "--disable-pip-version-check", "-r"])
         .arg(&req)
         .output()
         .await
