@@ -62,14 +62,21 @@ npm run tauri dev
 ### 生产打包
 
 ```powershell
-# 方式一：脚本打包（推荐）
+# 方式一：根目录一键脚本（双击 build.bat 即可，自动提权 + 国内镜像）
+.\build.bat -NoBundle            # 仅编译应用 exe（快速调试）
+.\build.bat -Bundles nsis        # 生成 NSIS 安装包（推荐）
+.\build.bat -Bundles msi         # 生成 MSI 安装包（需要 WiX，首次自动下载）
+.\build.bat                      # 完整打包（NSIS + MSI）
+.\build.bat -SkipNpmInstall      # 跳过 npm install 与图标生成
+
+# 方式二：scripts\build.ps1 脚本打包（推荐高级用法）
 .\scripts\build.ps1 -NoBundle            # 仅编译应用 exe（快速调试）
 .\scripts\build.ps1 -Bundles nsis        # 生成 NSIS 安装包
 .\scripts\build.ps1 -Bundles msi         # 生成 MSI 安装包（需要 WiX，首次自动下载）
 .\scripts\build.ps1                      # 完整打包（NSIS + MSI）
 .\scripts\build.ps1 -SkipNpmInstall      # 跳过 npm install 与图标生成
 
-# 方式二：直接调用 tauri
+# 方式三：直接调用 tauri
 npm run tauri build -- --bundles nsis
 ```
 
