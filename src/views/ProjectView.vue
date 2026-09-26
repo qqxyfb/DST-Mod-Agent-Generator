@@ -37,11 +37,18 @@ const chatNotice = ref("");
 /** 一键初始化后短暂高亮最后一条消息，明确告诉用户「初始化已经触发」 */
 const flashInit = ref(false);
 
-/** 把对话区滚到底部：最新消息始终可见 */
+/** 把对话区滚到底部：发送 / 恢复历史后让最新消息可见 */
 async function scrollChatToBottom() {
   await nextTick();
   const el = chatBoxRef.value;
   if (el) el.scrollTop = el.scrollHeight;
+}
+
+/** 把对话区滚到顶部：一键初始化产出的概设很长，从头看比直接跳到结尾更合理 */
+async function scrollChatToTop() {
+  await nextTick();
+  const el = chatBoxRef.value;
+  if (el) el.scrollTop = 0;
 }
 
 /** 标签下拉面板开关 + 搜索关键字（面板内滚动 / 搜索 / 全选，避免标签表常驻撑高卡片） */
@@ -317,7 +324,7 @@ async function initFromAgent() {
     confirmMsg.value = `一键初始化失败：${String(e)}`;
   } finally {
     busy.value = false;
-    await scrollChatToBottom();
+    await scrollChatToTop();
   }
 }
 
