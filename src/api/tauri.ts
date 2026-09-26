@@ -84,6 +84,8 @@ function genMock(cmd: string, args: Record<string, unknown>): unknown {
       ] as EnvItem[];
     case "python_env_setup":
       return { ok: false, message: "（浏览器预览）依赖安装需在 Tauri 中运行" } as EnvSetupResult;
+    case "detect_modtools":
+      return null;
     case "import_reference":
       return ["mock_ref.png"] as string[];
     case "check_update":
@@ -127,7 +129,10 @@ export const api = {
   llmTest: (cfg: AppConfig["llm"]) => call<TestResult>("llm_test", { cfg }),
   imageTest: (cfg: AppConfig["image"]) => call<TestResult>("image_test", { cfg }),
   pythonEnvStatus: () => call<EnvItem[]>("python_env_status"),
-  pythonEnvSetup: () => call<EnvSetupResult>("python_env_setup"),
+  pythonEnvSetup: (group = "base", mirror = "") =>
+    call<EnvSetupResult>("python_env_setup", { group, mirror }),
+  /** 自动检测 autocompiler.exe（Steam 注册表 + libraryfolders.vdf），未找到返回 null */
+  detectModtools: () => call<string | null>("detect_modtools"),
   checkUpdate: () => call<UpdateInfo>("check_update"),
 
   // Tab2 项目与人设

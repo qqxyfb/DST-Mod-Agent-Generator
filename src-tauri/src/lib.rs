@@ -22,6 +22,7 @@ pub fn run() {
             commands::config::image_test,
             commands::config::python_env_status,
             commands::config::python_env_setup,
+            commands::config::detect_modtools,
             commands::config::check_update,
             // Tab2 项目与人设
             commands::project::create_project,

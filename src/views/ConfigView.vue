@@ -16,7 +16,8 @@ const llmTestMsg = ref("");
 const imgTestMsg = ref("");
 const envItems = ref<EnvItem[]>([]);
 const installMsg = ref("");
-const installing = ref(false);
+const installing = ref(""); // 当前安装分组：base / rembg / sam2
+const pipMirror = ref("https://mirrors.aliyun.com/pypi/simple/");
 const updateMsg = ref("");
 const saving = ref(false);
 
@@ -57,16 +58,32 @@ async function refreshEnv() {
   envItems.value = await api.pythonEnvStatus();
 }
 
-// 一键安装基础依赖：后台执行 pip install -r python/requirements.txt（MVP 范围）
-async function installEnv() {
-  installing.value = true;
-  installMsg.value = "安装中…（首次会下载 Pillow / numpy，视网络可能需要几分钟）";
+// 按功能组一键安装依赖：base（Pillow/numpy）/ rembg（抠图）/ sam2（CPU 版分割）
+const INSTALL_LABELS: Record<string, string> = {
+  base: "基础依赖（Pillow / numpy）",
+  rembg: "rembg 抠图",
+  sam2: "SAM2 分割（CPU，体积大）",
+};
+async function installEnv(group: string) {
+  installing.value = group;
+  installMsg.value = `安装中…（${INSTALL_LABELS[group]}，下载较大，视网络可能需要几分钟）`;
   try {
-    const r = await api.pythonEnvSetup();
+    const r = await api.pythonEnvSetup(group, pipMirror.value);
     installMsg.value = r.ok ? `✓ ${r.message}` : `✗ ${r.message}`;
   } finally {
-    installing.value = false;
+    installing.value = "";
     await refreshEnv();
+  }
+}
+
+// 自动检测 autocompiler.exe（Steam 注册表 + libraryfolders.vdf）
+async function detectModtools() {
+  const p = await api.detectModtools();
+  if (p) {
+    cfg.modtools_path = p;
+    installMsg.value = `✓ 已自动检测到 autocompiler.exe：${p}（请点击“保存配置”生效）`;
+  } else {
+    installMsg.value = "✗ 未找到 autocompiler.exe，请确认已通过 Steam 安装 Don't Starve Mod Tools";
   }
 }
 
@@ -158,15 +175,24 @@ function pickDstDir() {
         </tr>
         <tr v-if="!envItems.length"><td colspan="3" class="muted">（浏览器预览模式无数据；Tauri 运行后展示）</td></tr>
       </table>
-      <div style="margin-top: 10px; display: flex; gap: 8px">
+      <div style="margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
         <button class="btn-secondary" @click="refreshEnv">刷新状态</button>
-        <button class="btn-secondary" @click="installEnv" :disabled="installing">{{ installing ? "安装中…" : "一键安装基础依赖" }}</button>
-        <span class="muted" style="align-self: center">MVP 安装基础 Python 依赖（Pillow / numpy）；rembg / SAM2 由 V1 接入</span>
+        <button class="btn-secondary" @click="installEnv('base')" :disabled="installing !== ''">{{ installing === 'base' ? "安装中…" : "一键安装基础依赖" }}</button>
+        <button class="btn-secondary" @click="installEnv('rembg')" :disabled="installing !== ''">{{ installing === 'rembg' ? "安装中…" : "安装 rembg（抠图）" }}</button>
+        <button class="btn-secondary" @click="installEnv('sam2')" :disabled="installing !== ''">{{ installing === 'sam2' ? "安装中…" : "安装 SAM2（CPU，体积大）" }}</button>
+      </div>
+      <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center">
+        <label style="white-space: nowrap">pip 镜像（https）</label>
+        <input type="text" v-model="pipMirror" style="flex: 1" placeholder="https://mirrors.aliyun.com/pypi/simple/（留空用默认源）" />
       </div>
       <div v-if="installMsg" style="margin-top: 8px" :class="installMsg.startsWith('✓') ? 'ok-text' : 'error-text'">{{ installMsg }}</div>
       <div style="margin-top: 12px">
-        <label>Klei Mod Tools（autocompiler.exe）路径（V1 编译用，用户自装）</label>
-        <input type="text" v-model="cfg.modtools_path" style="width: 100%" placeholder="D:\Steam\steamapps\common\Don't Starve Mod Tools" />
+        <label>Klei Mod Tools（autocompiler.exe）路径（V1 编译用）</label>
+        <div style="display: flex; gap: 8px; margin-top: 4px">
+          <input type="text" v-model="cfg.modtools_path" style="flex: 1" placeholder="D:\Steam\steamapps\common\Don't Starve Mod Tools\mod_tools\autocompiler.exe" />
+          <button class="btn-secondary" @click="detectModtools">自动检测</button>
+        </div>
+        <span class="muted">可点击“自动检测”扫描 Steam 注册表与 libraryfolders.vdf 自动定位；改完后点“保存配置”生效</span>
       </div>
     </div>
 

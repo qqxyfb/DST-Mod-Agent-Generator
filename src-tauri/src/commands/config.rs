@@ -132,11 +132,20 @@ pub fn python_env_status() -> Vec<EnvItem> {
     });
 
     let cfg = config::load();
-    let ac = find_autocompiler(&cfg.modtools_path);
+    let user_found = find_autocompiler(&cfg.modtools_path);
+    let auto_found = user_found.clone().or_else(dst::find_steam_autocompiler);
+    let (ac_ready, ac_detail) = match &auto_found {
+        Some(p) if user_found.is_some() => (true, p.clone()),
+        Some(p) => (true, format!("{p}（自动发现于 Steam 库，可点“自动检测”填入配置）")),
+        None => (
+            false,
+            "未配置 Klei Mod Tools（已自动扫描 Steam 库未找到；请通过 Steam 安装，或手动填写路径）".into(),
+        ),
+    };
     items.push(EnvItem {
         name: "autocompiler.exe".into(),
-        ready: ac.is_some(),
-        detail: ac.unwrap_or_else(|| "未配置 Klei Mod Tools 路径（用户自装，V1 编译用）".into()),
+        ready: ac_ready,
+        detail: ac_detail,
     });
 
     let esc = config::repo_root().join("templates").join("esc");
@@ -154,42 +163,112 @@ pub fn python_env_status() -> Vec<EnvItem> {
     items
 }
 
-/// 一键安装基础依赖：后台执行 `pip install -r python/requirements.txt`。
-/// MVP 范围只装 Pillow / numpy 等基础包；rembg / SAM2 体积较大，由 V1 图像流水线按需安装。
+/// 按功能组一键安装依赖（base / rembg / sam2）。
+/// - base ：Pillow / numpy（MVP 必需）
+/// - rembg：抠图（V1 图像管线，含 onnxruntime CPU 推理）
+/// - sam2 ：分割（CPU 版 torch + sam2 包，体积大；分割权重由图像管线首次使用时下载）
+/// mirror：可选 pip HTTPS 镜像。用户 pip.ini 若配置 http 源，新版 pip 会因
+///         trusted-host 键迁移到 global 段而忽略该源，此处允许显式指定 https 镜像解决。
 #[tauri::command]
-pub async fn python_env_setup() -> Result<EnvSetupResult, String> {
+pub async fn python_env_setup(
+    group: Option<String>,
+    mirror: Option<String>,
+) -> Result<EnvSetupResult, String> {
+    let group = group.unwrap_or_else(|| "base".into());
+    if !matches!(group.as_str(), "base" | "rembg" | "sam2") {
+        return Ok(EnvSetupResult {
+            ok: false,
+            message: format!("未知安装分组：{group}（支持 base / rembg / sam2）"),
+        });
+    }
     let Some(bridge) = py::PythonBridge::detect() else {
         return Ok(EnvSetupResult {
             ok: false,
             message: "未检测到 Python。请到 python.org 安装 Python 3.10+（安装时勾选 Add to PATH）后重试。".into(),
         });
     };
-    let req = config::repo_root().join("python").join("requirements.txt");
-    if !req.is_file() {
-        return Ok(EnvSetupResult {
-            ok: false,
-            message: format!("未找到依赖清单：{}", req.display()),
-        });
+    let mut index_args: Vec<&str> = vec![];
+    if let Some(m) = mirror.as_deref().map(str::trim) {
+        if !m.is_empty() {
+            index_args = vec!["--index-url", m];
+        }
     }
-    let out = tokio::process::Command::new(&bridge.python)
-        .env("PYTHONIOENCODING", "utf-8")
-        .args(["-m", "pip", "install", "--disable-pip-version-check", "-r"])
-        .arg(&req)
-        .output()
-        .await
-        .map_err(|e| format!("启动 pip 失败：{e}"))?;
-    if out.status.success() {
-        Ok(EnvSetupResult {
-            ok: true,
-            message: "基础依赖安装完成（Pillow / numpy），可点“刷新状态”确认。".into(),
-        })
-    } else {
-        let log = String::from_utf8_lossy(&out.stderr);
-        Ok(EnvSetupResult {
-            ok: false,
-            message: format!("pip 安装失败：{}", config::truncate(&log, 400)),
-        })
+
+    let msg = match group.as_str() {
+        "base" => {
+            let req = config::repo_root().join("python").join("requirements.txt");
+            if !req.is_file() {
+                return Ok(EnvSetupResult {
+                    ok: false,
+                    message: format!("未找到依赖清单：{}", req.display()),
+                });
+            }
+            let out = tokio::process::Command::new(&bridge.python)
+                .env("PYTHONIOENCODING", "utf-8")
+                .arg("-m").arg("pip").arg("install").arg("--disable-pip-version-check")
+                .args(index_args.clone())
+                .arg("-r").arg(&req)
+                .output().await.map_err(|e| format!("启动 pip 失败：{e}"))?;
+            if !out.status.success() {
+                return Ok(pip_failed(&out));
+            }
+            "基础依赖安装完成（Pillow / numpy），可点“刷新状态”确认。".to_string()
+        }
+        "rembg" => {
+            let out = tokio::process::Command::new(&bridge.python)
+                .env("PYTHONIOENCODING", "utf-8")
+                .arg("-m").arg("pip").arg("install").arg("--disable-pip-version-check")
+                .args(index_args.clone())
+                .args(["rembg", "onnxruntime"])
+                .output().await.map_err(|e| format!("启动 pip 失败：{e}"))?;
+            if !out.status.success() {
+                return Ok(pip_failed(&out));
+            }
+            "rembg 安装完成（含 onnxruntime CPU 推理）。抠图模型权重首次使用时自动下载（约 180MB）。".to_string()
+        }
+        "sam2" => {
+            // 1) CPU 版 torch / torchvision（官方 CPU wheel 源，体积大）
+            let out1 = tokio::process::Command::new(&bridge.python)
+                .env("PYTHONIOENCODING", "utf-8")
+                .arg("-m").arg("pip").arg("install").arg("--disable-pip-version-check")
+                .args(["--index-url", "https://download.pytorch.org/whl/cpu"])
+                .args(["torch", "torchvision"])
+                .output().await.map_err(|e| format!("启动 pip 失败：{e}"))?;
+            if !out1.status.success() {
+                return Ok(pip_failed(&out1));
+            }
+            // 2) SAM2 包（PyPI：sam2>=1.1.0）
+            let out2 = tokio::process::Command::new(&bridge.python)
+                .env("PYTHONIOENCODING", "utf-8")
+                .arg("-m").arg("pip").arg("install").arg("--disable-pip-version-check")
+                .args(index_args)
+                .args(["sam2"])
+                .output().await.map_err(|e| format!("启动 pip 失败：{e}"))?;
+            if !out2.status.success() {
+                return Ok(pip_failed(&out2));
+            }
+            "SAM2（CPU 版）安装完成。分割权重（sam2.1_hiera，约 75MB~900MB）由图像流水线首次使用时下载。".to_string()
+        }
+        _ => unreachable!(),
+    };
+    Ok(EnvSetupResult { ok: true, message: msg })
+}
+
+/// pip 失败信息（截断 stderr，编码统一 UTF-8）
+fn pip_failed(out: &std::process::Output) -> EnvSetupResult {
+    EnvSetupResult {
+        ok: false,
+        message: format!(
+            "pip 安装失败：{}",
+            config::truncate(&String::from_utf8_lossy(&out.stderr), 400)
+        ),
     }
+}
+
+/// 自动检测 autocompiler.exe（Steam 注册表安装路径 + libraryfolders.vdf 全部库）
+#[tauri::command]
+pub fn detect_modtools() -> Option<String> {
+    crate::core::dst::find_steam_autocompiler()
 }
 
 /// 在配置路径下查找 autocompiler.exe（文件本身或最多 3 层递归目录）
